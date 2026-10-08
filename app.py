@@ -1,102 +1,118 @@
-import random, time, threading
+import os
+import random
+import time
+import threading
 from flask import Flask, render_template_string
 from flask_socketio import SocketIO
 
 app = Flask(__name__)
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+app.config['SECRET_KEY'] = 'aviator-secret'
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 
-# === ETAT DU JEU ===
+# Variables du jeu
 game_state = {
     'multiplier': 1.0,
-    'is_crashed': False,
-    'history': [],
-    'phase': 'waiting' # waiting, flying, crashed
+    'is_flying': False,
+    'crashed': False,
+    'players': {}
 }
 
-def game_loop():
-    while True:
-        # Phase 1 : Attente 3 secondes
-        game_state['phase'] = 'waiting'
-        game_state['multiplier'] = 1.0
-        game_state['is_crashed'] = False
-        socketio.emit('waiting', {'time': 3})
-        time.sleep(3)
-
-        # Phase 2 : Vol
-        game_state['phase'] = 'flying'
-        game_state['multiplier'] = 1.0
-        crash_point = random.uniform(1.1, 10.0)
-        if random.random() < 0.15: # 15% de crash tot
-            crash_point = random.uniform(1.0, 1.5)
-        
-        last_multiplier = 1.0
-        
-        while game_state['multiplier'] < crash_point:
-            last_multiplier = game_state['multiplier']
-            game_state['multiplier'] += 0.02 + (game_state['multiplier'] * 0.002)
-            socketio.emit('update', {'multiplier': round(game_state['multiplier'], 2)})
-            time.sleep(0.1)
-
-        # Phase 3 : Crash - CORRECTION DU BUG 1.01x
-        game_state['phase'] = 'crashed'
-        game_state['is_crashed'] = True
-        final_value = round(last_multiplier, 2)
-        game_state['history'].insert(0, final_value)
-        if len(game_state['history']) > 10:
-            game_state['history'].pop()
-        
-        socketio.emit('crashed', {'multiplier': final_value, 'history': game_state['history']})
-        print(f"CRASH a {final_value}x (pas 1.01x)")
-        time.sleep(3)
-
-HTML = """
-<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width, initial-scale=1'>
+HTML_PAGE = """
+<!DOCTYPE html>
+<html>
+<head>
+<title>Aviator Game</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
 <style>
-body{background:#0b0e1a;color:white;font-family:Arial;text-align:center;margin:0}
-.history{display:flex;gap:5px;overflow-x:auto;padding:10px;background:#1a1e33}
-.history span{padding:5px 10px;border-radius:15px;font-weight:bold}
-.low{background:#ff3b3b} .high{background:#00d26a} .mid{background:#ffaa00}
-#plane{font-size:80px;margin-top:40px;transition:0.1s}
-#multiplier{font-size:60px;font-weight:bold;margin:20px}
-.crashed{color:#ff3b3b}
+body{background:#0f172a;color:white;font-family:Arial;text-align:center;padding:20px}
+#plane{font-size:80px;transition:all 0.1s}
+#multiplier{font-size:60px;color:#22c55e;font-weight:bold;margin:20px}
+button{padding:15px 40px;font-size:20px;background:#22c55e;border:none;border-radius:10px;color:white;cursor:pointer;margin:10px}
+button:disabled{background:gray}
+#crashed{color:#ef4444;font-size:40px;display:none}
 </style>
-<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-</head><body>
-<div class="history" id="history"></div>
+</head>
+<body>
+<h1>✈️ AVIATOR</h1>
 <div id="plane">✈️</div>
 <div id="multiplier">1.00x</div>
-<div id="status">En attente...</div>
+<div id="crashed">💥 CRASHED!</div>
+<button id="betBtn" onclick="placeBet()">PARIER 100</button>
+<button id="cashBtn" onclick="cashOut()" disabled>CASH OUT</button>
+<div id="info"></div>
 <script>
 var socket = io();
-socket.on('update', (d)=>{
- document.getElementById('multiplier').innerText = d.multiplier.toFixed(2)+'x';
- document.getElementById('plane').style.transform = 'translateX('+(d.multiplier*10)+'px) translateY('+(-d.multiplier*2)+'px)';
+var hasBet = false;
+var cashed = false;
+var currentMult = 1.0;
+
+socket.on('game_update', function(data){
+    currentMult = data.multiplier;
+    document.getElementById('multiplier').innerText = data.multiplier.toFixed(2) + 'x';
+    document.getElementById('plane').style.transform = 'translateX('+(data.multiplier*20)+'px) translateY(-'+(data.multiplier*5)+'px)';
+    if(data.crashed){
+        document.getElementById('crashed').style.display='block';
+        document.getElementById('multiplier').style.color='#ef4444';
+        hasBet=false;
+        document.getElementById('betBtn').disabled=false;
+        document.getElementById('cashBtn').disabled=true;
+    } else {
+        document.getElementById('crashed').style.display='none';
+        document.getElementById('multiplier').style.color='#22c55e';
+    }
 });
-socket.on('waiting', (d)=>{
- document.getElementById('status').innerText = 'Prochain tour dans '+d.time+'s';
- document.getElementById('multiplier').className='';
- document.getElementById('plane').style.transform='translateX(0) translateY(0)';
-});
-socket.on('crashed', (d)=>{
- document.getElementById('multiplier').innerText = d.multiplier.toFixed(2)+'x';
- document.getElementById('multiplier').className='crashed';
- document.getElementById('status').innerText = 'CRASH a '+d.multiplier+'x !';
- let h = document.getElementById('history'); h.innerHTML='';
- d.history.forEach(v=>{
-  let cls = v<2?'low':v<5?'mid':'high';
-  h.innerHTML += '<span class='+cls+'>'+v.toFixed(2)+'x</span>';
- });
-});
-</script></body></html>
+
+function placeBet(){
+    hasBet=true;
+    cashed=false;
+    document.getElementById('betBtn').disabled=true;
+    document.getElementById('cashBtn').disabled=false;
+    document.getElementById('info').innerText='Pari placé! Attends le cash out';
+}
+function cashOut(){
+    if(hasBet && !cashed){
+        cashed=true;
+        var win = (100 * currentMult).toFixed(0);
+        document.getElementById('info').innerText='GAGNÉ: '+win+' ! à '+currentMult.toFixed(2)+'x';
+        document.getElementById('cashBtn').disabled=true;
+        document.getElementById('betBtn').disabled=false;
+        hasBet=false;
+    }
+}
+</script>
+</body>
+</html>
 """
 
 @app.route('/')
 def index():
-    return render_template_string(HTML)
+    return render_template_string(HTML_PAGE)
+
+def game_loop():
+    while True:
+        # Nouveau tour
+        game_state['multiplier'] = 1.0
+        game_state['is_flying'] = True
+        game_state['crashed'] = False
+        crash_point = random.uniform(1.1, 10.0)
+        # Si random < 0.1 crash instant
+        if random.random() < 0.1:
+            crash_point = random.uniform(1.0, 1.2)
+        
+        while game_state['multiplier'] < crash_point and game_state['is_flying']:
+            game_state['multiplier'] += 0.05
+            socketio.emit('game_update', {'multiplier': game_state['multiplier'], 'crashed': False})
+            time.sleep(0.1)
+        
+        # Crash
+        game_state['crashed'] = True
+        game_state['is_flying'] = False
+        socketio.emit('game_update', {'multiplier': game_state['multiplier'], 'crashed': True})
+        time.sleep(5)
 
 threading.Thread(target=game_loop, daemon=True).start()
 
 if __name__ == '__main__':
-    import os
-    port = int(os.environ.get("PORT", 10000))
-    socketio.run(app, host="0.0.0.0", port=port)
+    port = int(os.environ.get('PORT', 10000))
+    socketio.run(app, host='0.0.0.0', port=port, allow_unsafe_werkzeug=True)
