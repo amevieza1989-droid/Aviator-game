@@ -1,117 +1,65 @@
 import os
-import random
-import time
-import threading
-from flask import Flask, render_template_string
+from flask import Flask
 from flask_socketio import SocketIO
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'aviator-secret'
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
 
-# Variables du jeu
-game_state = {
-    'multiplier': 1.0,
-    'is_flying': False,
-    'crashed': False,
-    'players': {}
-}
-
-HTML_PAGE = """
+HTML = r'''
 <!DOCTYPE html>
-<html>
+<html lang="fr">
 <head>
-<title>Aviator Game</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aviateur</title>
 <style>
-body{background:#0f172a;color:white;font-family:Arial;text-align:center;padding:20px}
-#plane{font-size:80px;transition:all 0.1s}
-#multiplier{font-size:60px;color:#22c55e;font-weight:bold;margin:20px}
-button{padding:15px 40px;font-size:20px;background:#22c55e;border:none;border-radius:10px;color:white;cursor:pointer;margin:10px}
-button:disabled{background:gray}
-#crashed{color:#ef4444;font-size:40px;display:none}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0b0f1e;color:white;font-family:Arial;overflow:hidden;height:100vh}
+.top{text-align:center;padding:20px}
+.game{position:relative;width:100%;height:60vh;background:#0b0f1e;overflow:hidden;border-top:1px solid #1e2a4a;border-bottom:1px solid #1e2a4a}
+#plane{position:absolute;left:10%;bottom:20%;font-size:50px;transition:all 0.08s linear}
+#multi{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:70px;font-weight:900;color:#2eff7a}
+.crash{color:#ff3b3b !important}
+.controls{display:flex;justify-content:center;gap:15px;padding:20px}
+.btn{padding:14px 28px;border:none;border-radius:12px;font-weight:bold;cursor:pointer}
+.bet{background:#22c55e;color:white}
+.cash{background:#f59e0b;color:white}
+.btn:disabled{opacity:0.5}
+.stats{text-align:center;color:#8b9bb4}
+.history{display:flex;gap:8px;justify-content:center;padding:10px;flex-wrap:wrap}
+.hist{background:#1a233f;padding:5px 10px;border-radius:20px;font-size:13px}
 </style>
 </head>
 <body>
-<h1>✈️ AVIATOR</h1>
+<div class="top"><h1>✈️ AVIATEUR</h1></div>
+<div class="game">
+<div id="multi">1.00x</div>
 <div id="plane">✈️</div>
-<div id="multiplier">1.00x</div>
-<div id="crashed">💥 CRASHED!</div>
-<button id="betBtn" onclick="placeBet()">PARIER 100</button>
-<button id="cashBtn" onclick="cashOut()" disabled>CASH OUT</button>
-<div id="info"></div>
+</div>
+<div class="controls">
+<button class="btn bet" id="betBtn" onclick="placeBet()">PARIER 100</button>
+<button class="btn cash" id="cashBtn" onclick="cashout()" disabled>RETRAIT</button>
+</div>
+<div class="stats" id="msg">En attente...</div>
+<div class="history" id="history"></div>
 <script>
-var socket = io();
-var hasBet = false;
-var cashed = false;
-var currentMult = 1.0;
-
-socket.on('game_update', function(data){
-    currentMult = data.multiplier;
-    document.getElementById('multiplier').innerText = data.multiplier.toFixed(2) + 'x';
-    document.getElementById('plane').style.transform = 'translateX('+(data.multiplier*20)+'px) translateY(-'+(data.multiplier*5)+'px)';
-    if(data.crashed){
-        document.getElementById('crashed').style.display='block';
-        document.getElementById('multiplier').style.color='#ef4444';
-        hasBet=false;
-        document.getElementById('betBtn').disabled=false;
-        document.getElementById('cashBtn').disabled=true;
-    } else {
-        document.getElementById('crashed').style.display='none';
-        document.getElementById('multiplier').style.color='#22c55e';
-    }
-});
-
-function placeBet(){
-    hasBet=true;
-    cashed=false;
-    document.getElementById('betBtn').disabled=true;
-    document.getElementById('cashBtn').disabled=false;
-    document.getElementById('info').innerText='Pari placé! Attends le cash out';
-}
-function cashOut(){
-    if(hasBet && !cashed){
-        cashed=true;
-        var win = (100 * currentMult).toFixed(0);
-        document.getElementById('info').innerText='GAGNÉ: '+win+' ! à '+currentMult.toFixed(2)+'x';
-        document.getElementById('cashBtn').disabled=true;
-        document.getElementById('betBtn').disabled=false;
-        hasBet=false;
-    }
-}
+let mult=1.00,flying=false,crashPoint=0,interval,betActive=false,betAmount=100;
+const multiEl=document.getElementById('multi'),planeEl=document.getElementById('plane'),msgEl=document.getElementById('msg'),betBtn=document.getElementById('betBtn'),cashBtn=document.getElementById('cashBtn'),historyEl=document.getElementById('history');
+function randomCrash(){let r=Math.random();if(r<0.1)return(Math.random()*1+1).toFixed(2);if(r<0.4)return(Math.random()*2+1).toFixed(2);if(r<0.75)return(Math.random()*4+2).toFixed(2);if(r<0.92)return(Math.random()*10+4).toFixed(2);return(Math.random()*50+10).toFixed(2);}
+function startRound(){flying=true;mult=1.00;crashPoint=parseFloat(randomCrash());multiEl.classList.remove('crash');msgEl.textContent='Tour... crash prevu '+crashPoint+'x';betBtn.disabled=true;if(betActive)cashBtn.disabled=false;planeEl.style.left='10%';planeEl.style.bottom='20%';planeEl.style.opacity='1';clearInterval(interval);interval=setInterval(()=>{mult+=0.01+mult*0.008;if(mult>=crashPoint){doCrash();return;}multiEl.textContent=mult.toFixed(2)+'x';let p=Math.min(mult/crashPoint,1);planeEl.style.left=(10+p*75)+'%';planeEl.style.bottom=(20+p*60)+'%';planeEl.style.transform='rotate('+-p*30+'deg)';},70);}
+function doCrash(){clearInterval(interval);flying=false;multiEl.textContent=crashPoint+'x';multiEl.classList.add('crash');msgEl.textContent='CRASH à '+crashPoint+'x !';planeEl.style.opacity='0';cashBtn.disabled=true;betActive=false;betBtn.disabled=false;let d=document.createElement('div');d.className='hist';d.style.color=crashPoint<2?'#8b9bb4':crashPoint<5?'#22c55e':'#f59e0b';d.textContent=crashPoint+'x';historyEl.prepend(d);if(historyEl.children.length>12)historyEl.lastChild.remove();setTimeout(startRound,3000);}
+function placeBet(){betActive=true;betBtn.disabled=true;betBtn.textContent='PARIÉ '+betAmount;if(!flying)startRound();}
+function cashout(){if(!flying||!betActive)return;let gain=Math.floor(betAmount*mult);msgEl.textContent='Gagné '+gain+' FCFA à '+mult.toFixed(2)+'x !';betActive=false;cashBtn.disabled=true;betBtn.disabled=false;}
+setTimeout(startRound,1000);
 </script>
 </body>
 </html>
-"""
+'''
 
 @app.route('/')
 def index():
-    return render_template_string(HTML_PAGE)
-
-def game_loop():
-    while True:
-        # Nouveau tour
-        game_state['multiplier'] = 1.0
-        game_state['is_flying'] = True
-        game_state['crashed'] = False
-        crash_point = random.uniform(1.1, 10.0)
-        # Si random < 0.1 crash instant
-        if random.random() < 0.1:
-            crash_point = random.uniform(1.0, 1.2)
-        
-        while game_state['multiplier'] < crash_point and game_state['is_flying']:
-            game_state['multiplier'] += 0.05
-            socketio.emit('game_update', {'multiplier': game_state['multiplier'], 'crashed': False})
-            time.sleep(0.1)
-        
-        # Crash
-        game_state['crashed'] = True
-        game_state['is_flying'] = False
-        socketio.emit('game_update', {'multiplier': game_state['multiplier'], 'crashed': True})
-        time.sleep(5)
-
-threading.Thread(target=game_loop, daemon=True).start()
+    return HTML
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 10000))
