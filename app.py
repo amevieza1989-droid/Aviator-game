@@ -102,7 +102,9 @@ async function valider(id){
 @app.route('/admin')
 def admin_page():
     return render_template_string(ADMIN_HTML)
- HTML = r"""
+
+# --- TON JEU AVIATOR  (ORIGINAL) ---
+HTML = r"""
 <!DOCTYPE html>
 <html lang="fr">
 <head>
