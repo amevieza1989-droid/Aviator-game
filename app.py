@@ -7,7 +7,7 @@ app = Flask(__name__)
 CORS(app)
 FICHIER="depots.json"; CODE="92727034"
 
-etat={"phase":"waiting","multiplier":1.0,"crash":2.0,"countdown":7.0,"history":[4.99,1.12,5.67,1.05,12.81,3.44,1.99],"wait_start":time.time()}
+etat={"phase":"waiting","multiplier":1.0,"crash":2.0,"countdown":7.0,"elapsed":0,"history":[4.99,1.12,5.67,1.05,12.81,3.44,1.99],"wait_start":time.time()}
 lock=threading.Lock()
 
 def gen_crash():
@@ -23,7 +23,8 @@ def boucle():
             now=time.time()
             if etat["phase"]=="flying":
                 elapsed=now-etat["start"]
-                etat["multiplier"]=1 + elapsed*0.3 + pow(elapsed,1.9)*0.09
+                etat["elapsed"]=elapsed
+                etat["multiplier"]=1 + elapsed*0.28 + pow(elapsed,1.85)*0.07
                 if etat["multiplier"]>=etat["crash"]:
                     etat["history"]=[round(etat["crash"],2)]+etat["history"][:25]
                     etat["phase"]="crashed"
@@ -32,7 +33,6 @@ def boucle():
                 if now-etat["crash_time"]>1.5:
                     etat["phase"]="waiting"
                     etat["wait_start"]=now
-                    etat["countdown"]=7.0
             elif etat["phase"]=="waiting":
                 etat["countdown"]=max(0,7-(now-etat["wait_start"]))
                 if now-etat["wait_start"]>=7:
@@ -40,7 +40,8 @@ def boucle():
                     etat["phase"]="flying"
                     etat["start"]=now
                     etat["multiplier"]=1.0
-        time.sleep(0.06)
+                    etat["elapsed"]=0
+        time.sleep(0.05)
 
 threading.Thread(target=boucle,daemon=True).start()
 
@@ -81,12 +82,11 @@ body{background:#0e1624;color:white;font-family:Arial;height:100dvh;display:flex
 .top span{padding:3px 8px;border-radius:10px;font-size:12px}
 .main{flex:1;display:flex;overflow:hidden;min-height:0}
 .left{width:110px;min-width:110px;background:#111c2e;overflow-y:auto;padding:4px;font-size:10px}
-.row{display:flex;justify-content:space-between;padding:5px 2px;border-bottom:1px solid #1a2332}
 .center{flex:1;position:relative;background:radial-gradient(ellipse at bottom,#1a2a44,#0e1624);overflow:hidden;display:flex;align-items:center;justify-content:center}
 canvas{position:absolute;inset:0;width:100%;height:100%}
 .mult{position:absolute;z-index:3;font-size:54px;font-weight:900;text-align:center;line-height:1.1}
 .mult small{display:block;font-size:16px;font-weight:400;opacity:0.8;margin-top:6px}
-#plane{position:absolute;z-index:4;font-size:30px;transform:translate(-50%,-50%)}
+#plane{position:absolute;z-index:4;font-size:30px;transform:translate(-50%,-50%) rotate(15deg)}
 .controls{height:240px;min-height:240px;background:#0f172a;padding:8px;display:flex;gap:8px;border-top:2px solid #ff7a00}
 .betbox{flex:1;background:#1e2a44;border-radius:12px;padding:8px;display:flex;flex-direction:column;justify-content:space-between;border:1px solid #2a3a5a}
 .betbox label{font-size:10px;opacity:0.6}.row2{display:flex;gap:6px}.row2>div{flex:1}
@@ -113,10 +113,11 @@ canvas{position:absolute;inset:0;width:100%;height:100%}
 </div>
 <div class="modal" id="modalDepot"><div class="box"><h3>Depot 92 72 70 34</h3><input id="depMontant" type="number" placeholder="Montant"><input id="depTel" placeholder="Numero"><input id="depId" placeholder="ID transaction"><button class="btn green" onclick="envoyerDepot()">ENVOYER</button><button class="btn" style="background:#333;margin-top:8px" onclick="closeDepot()">FERMER</button></div></div>
 <script>
-let solde=1000,bet1=0,bet2=0,autoOn1=true,autoOn2=true,curMult=1;
+let solde=1000,bet1=0,bet2=0,autoOn1=true,autoOn2=true,curMult=1,curElapsed=0;
 let canvas=document.getElementById('c'),ctx=canvas.getContext('2d'),plane=document.getElementById('plane');
 function resize(){let r=window.devicePixelRatio||1;canvas.width=canvas.clientWidth*r;canvas.height=canvas.clientHeight*r;ctx.setTransform(r,0,0,r,0,0);}resize();
 let multDiv=document.getElementById('mult');
+
 async function poll(){
  let r=await fetch('/api/state');let e=await r.json();
  let W=canvas.clientWidth,H=canvas.clientHeight;
@@ -131,27 +132,39 @@ async function poll(){
  } else if(e.phase=="crashed"){
    multDiv.innerHTML=`<span style="color:#ff3c00">${e.crash.toFixed(2)}x</span><small>CRASHED</small>`;
    plane.style.display='none';
-   // ligne reste figée rouge
-   let prog=Math.min(e.crash/12,1);
+   // courbe couchée - dessine jusqu'au crash
+   let prog = Math.min(e.elapsed/8, 0.9);
    ctx.beginPath();ctx.strokeStyle='#ff3c00';ctx.lineWidth=3;
-   for(let x=0;x<W*prog;x++){let t=x/W*5;let y=H - Math.pow(t,2.2)*(H*0.65)-t*10;if(y<0)break;if(x==0)ctx.moveTo(x,y);else ctx.lineTo(x,y);}ctx.stroke();
+   for(let i=0;i<=100;i++){
+     let t=i/100*prog;
+     let x=W*t;
+     let y=H - (t*H*0.15) - Math.pow(t,2.2)*H*0.55;
+     if(i==0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+   }ctx.stroke();
    if(bet1>0||bet2>0){bet1=0;bet2=0;}
  } else {
-   curMult=e.multiplier;
+   curMult=e.multiplier;curElapsed=e.elapsed;
    multDiv.innerHTML=`<span style="color:${curMult>=2?'#00ff88':'white'}">${curMult.toFixed(2)}x</span>`;
+   let prog = Math.min(curElapsed/8, 0.9);
+   let last=[0,H];
    ctx.beginPath();ctx.strokeStyle='#ff3c00';ctx.lineWidth=3;
-   let prog=Math.min(curMult/12,1);
-   let last=[0,0];
-   for(let x=0;x<W*prog;x++){let t=x/W*5;let y=H - Math.pow(t,2.2)*(H*0.65)-t*10;if(y<0)break;last=[x,y];if(x==0)ctx.moveTo(x,y);else ctx.lineTo(x,y);}ctx.stroke();
-   ctx.lineTo(last[0],H);ctx.lineTo(0,H);ctx.closePath();ctx.fillStyle='rgba(255,60,0,0.18)';ctx.fill();
+   for(let i=0;i<=100;i++){
+     let t=i/100*prog;
+     let x=W*t;
+     // FORMULE COUCHÉE - allure normale
+     let y=H - (t*H*0.18) - Math.pow(t,2.5)*H*0.45;
+     if(i==0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+     if(i==100)last=[x,y];
+   }ctx.stroke();
+   ctx.lineTo(last[0],H);ctx.lineTo(0,H);ctx.closePath();ctx.fillStyle='rgba(255,60,0,0.15)';ctx.fill();
    plane.style.display='block';plane.style.left=last[0]+'px';plane.style.top=last[1]+'px';
    if(bet1>0){let g=(bet1*curMult).toFixed(0);document.getElementById('btn1').innerText='CASHOUT '+g+'F';document.getElementById('btn1').className='btn red';
-     if(autoOn1&&curMult>=parseFloat(document.getElementById('auto1').value)){solde+=bet1*curMult;document.getElementById('solde').innerText=Math.floor(solde)+'F';bet1=0;document.getElementById('btn1').innerText='GAIN '+g+'F';}}
+     if(autoOn1&&curMult>=parseFloat(document.getElementById('auto1').value)){solde+=bet1*curMult;document.getElementById('solde').innerText=Math.floor(solde)+'F';bet1=0;}}
    if(bet2>0){let g=(bet2*curMult).toFixed(0);document.getElementById('btn2').innerText='CASHOUT '+g+'F';document.getElementById('btn2').className='btn red';
-     if(autoOn2&&curMult>=parseFloat(document.getElementById('auto2').value)){solde+=bet2*curMult;document.getElementById('solde').innerText=Math.floor(solde)+'F';bet2=0;document.getElementById('btn2').innerText='GAIN '+g+'F';}}
+     if(autoOn2&&curMult>=parseFloat(document.getElementById('auto2').value)){solde+=bet2*curMult;document.getElementById('solde').innerText=Math.floor(solde)+'F';bet2=0;}}
  }
 }
-setInterval(poll,70);
+setInterval(poll,60);
 function toggleAuto(n){if(n==1){autoOn1=!autoOn1;document.getElementById('sw1').className='sw '+(autoOn1?'on':'');}else{autoOn2=!autoOn2;document.getElementById('sw2').className='sw '+(autoOn2?'on':'');}}
 function parier(n){let mise=parseInt(document.getElementById('mise'+n).value);if(n==1&&bet1==0){if(solde<mise){alert('Solde insuffisant DEPOT');return;}solde-=mise;bet1=mise;document.getElementById('solde').innerText=solde+'F';}else if(n==1&&bet1>0){solde+=bet1*curMult;bet1=0;document.getElementById('solde').innerText=Math.floor(solde)+'F';document.getElementById('btn1').innerText='PLACER UN PARI';document.getElementById('btn1').className='btn orange';}
 if(n==2&&bet2==0){if(solde<mise){alert('Solde');return;}solde-=mise;bet2=mise;document.getElementById('solde').innerText=solde+'F';}else if(n==2&&bet2>0){solde+=bet2*curMult;bet2=0;document.getElementById('solde').innerText=Math.floor(solde)+'F';document.getElementById('btn2').innerText='PLACER UN PARI';document.getElementById('btn2').className='btn green';}}
