@@ -1,20 +1,19 @@
-from flask import Flask
+import requests
+from bs4 import BeautifulSoup
 
-app = Flask(__name__)
+def get_togo_results():
+    # Exemple pour loterie-togo.com
+    url = "https://www.loterie-togo.com"
+    try:
+        r = requests.get(url, timeout=10)
+        soup = BeautifulSoup(r.text, 'html.parser')
+        # Tu cherches les balises qui contiennent "5 Premiers numéros"
+        # et tu extrais "33 - 49 - 21 - 46 - 86"
+        return soup.text[:500] # à affiner
+    except:
+        return None
 
-@app.route('/')
-def home():
-    return """
-    <html>
-    <head><meta name="viewport" content="width=device-width, initial-scale=1"></head>
-    <body style="background:#111;color:gold;text-align:center;padding:50px;font-family:Arial">
-        <h1>🏆 LOTO STATS PRO V4 EST LIVE !</h1>
-        <p style="color:white;font-size:20px;">Serveur OK ✅</p>
-        <p>Tu as réussi ! Le site est en ligne.</p>
-    </body>
-    </html>
-    """
-
-# C'est cette ligne qui manquait
-if __name__ == "__main__":
-    app.run()
+def get_lonaci_results():
+    url = "https://pmu-pmub.com/resultats-lonaci/"
+    # Même logique, tu cherches "ARRIVEE DU"
+    pass
