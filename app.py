@@ -49,39 +49,42 @@ const grille = {
   'SAMEDI': {'09:00':'MATINALE', '13:00':'SAM', '18:00':'BINGO'},
   'DIMANCHE': {'15:00':'DETENTE'}
 }
-function updateAll(){
+function updateHeures(){
  let jour = document.getElementById('jour').value;
  let heureSel = document.getElementById('heure');
- let jeuInput = document.getElementById('jeu_auto');
-
  if(jour=='DIMANCHE'){
    heureSel.innerHTML='<option value="15:00">15H - DETENTE</option>';
  } else {
    heureSel.innerHTML='<option value="09:00">09H - MATINALE</option><option value="13:00">13H</option><option value="18:00">18H</option>';
  }
- let h = heureSel.value;
- if(grille[jour] && grille[jour][h]){ jeuInput.value = grille[jour][h]; }
- else { setTimeout(()=>{ let hh=heureSel.value; if(grille[jour][hh]) jeuInput.value=grille[jour][hh]; },50); }
+ updateJeu();
+}
+function updateJeu(){
+ let jour = document.getElementById('jour').value;
+ let heure = document.getElementById('heure').value;
+ let jeuInput = document.getElementById('jeu_auto');
+ if(grille[jour] && grille[jour][heure]){
+   jeuInput.value = grille[jour][heure];
+ }
 }
 </script>
 </head>
-<body onload="updateAll()">
+<body onload="updateHeures()">
 <h2 style="color:gold">🔐 COLLECTE TOGO OFFICIEL</h2>
 <form method="POST">
 <label>Jour</label>
-<select name="jour" id="jour" onchange="updateAll()" required>
+<select name="jour" id="jour" onchange="updateHeures()" required>
 <option>LUNDI</option><option>MARDI</option><option>MERCREDI</option><option>JEUDI</option>
 <option>VENDREDI</option><option>SAMEDI</option><option>DIMANCHE</option>
 </select>
 <label>Heure</label>
-<select name="heure" id="heure" onchange="updateAll()" required></select>
+<select name="heure" id="heure" onchange="updateJeu()" required></select>
 <label>Jeu (auto)</label>
 <input name="jeu" id="jeu_auto" readonly>
 <label>5 Numéros du HAUT</label>
 <div class="row"><input name="h1" required><input name="h2" required><input name="h3" required><input name="h4" required><input name="h5" required></div>
 <label>5 Numéros du BAS</label>
 <div class="row"><input name="b1" required><input name="b2" required><input name="b3" required><input name="b4" required><input name="b5" required></div>
-<input type="hidden" name="jeu_hidden" id="jeu_hidden">
 <button type="submit">✅ ENREGISTRER</button>
 </form>
 <p><a href="/" style="color:gold">← Retour</a></p>
