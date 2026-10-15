@@ -1,69 +1,71 @@
 from flask import Flask, request, redirect, render_template_string
 import sqlite3
-import os
 from datetime import datetime
-import requests
-from bs4 import BeautifulSoup
 
 app = Flask(__name__)
-DB = "loto.db"
+DB = "loto_togo.db"
 
-# Crée la base si elle n'existe pas
 def init_db():
     conn = sqlite3.connect(DB)
     conn.execute('''CREATE TABLE IF NOT EXISTS tirages
-    (id INTEGER PRIMARY KEY, pays TEXT, loterie TEXT, numeros TEXT, date TEXT)''')
+    (id INTEGER PRIMARY KEY, jour TEXT, heure TEXT, jeu TEXT, numeros TEXT, date_saisie TEXT)''')
     conn.close()
 init_db()
 
-# PAGE D'ACCUEIL - Ce que tes clients voient
-HOME_HTML = """
+HOME = """
 <html><head><meta name="viewport" content="width=device-width, initial-scale=1">
-<style>body{background:#111;color:#fff;font-family:Arial;text-align:center;padding:20px}
-.card{background:#222;padding:15px;margin:10px;border-radius:10px;border-left:4px solid gold}
-.btn{background:gold;color:#111;padding:12px 25px;border-radius:20px;text-decoration:none;font-weight:bold}
+<style>body{background:#0a0a0a;color:#fff;font-family:Arial;text-align:center;padding:15px}
+.card{background:#1a1a1a;padding:12px;margin:8px 0;border-radius:10px;border-left:4px solid gold;text-align:left}
+.top{background:linear-gradient(45deg,gold,#ffcc00);color:#111;padding:15px;border-radius:15px}
+.btn{background:gold;color:#111;padding:14px 30px;border-radius:25px;text-decoration:none;font-weight:bold;display:inline-block;margin:10px}
+.heure{color:gold;font-weight:bold}
 </style></head>
 <body>
-<h1 style="color:gold">🏆 LOTO STATS PRO V4 LIVE</h1>
-<p>Serveur OK ✅ - {{count}} tirages enregistrés</p>
-<a class="btn" href="/admin">ADMIN COLLECTE</a>
-<h3>Derniers Résultats</h3>
+<div class="top"><h1>🏆 LOTO TOGO PRO V4</h1><p>Serveur OK ✅ | {{count}} tirages</p></div>
+<a class="btn" href="/admin">🔐 ADMIN - SAISIR RESULTAT</a>
+<h3>📊 Résultats Togo - Lundi à Dimanche</h3>
 {% for r in results %}
-<div class="card"><b>{{r[1]}} - {{r[2]}}</b><br>{{r[3]}}<br><small>{{r[4]}}</small></div>
-{% endfor %}
+<div class="card"><span class="heure">{{r[2]}}</span> - {{r[1]}} | <b>{{r[3]}}</b><br>
+<b style="font-size:18px;color:gold">{{r[4]}}</b><br><small>{{r[5]}}</small></div>
+{% else %}<p>Aucun résultat. Clique ADMIN pour commencer.</p>{% endfor %}
 </body></html>
 """
 
-# PAGE ADMIN - Là où TOI tu collectes
-ADMIN_HTML = """
+ADMIN = """
 <html><head><meta name="viewport" content="width=device-width, initial-scale=1">
-<style>body{background:#111;color:#fff;font-family:Arial;padding:20px}
-input,select{width:100%;padding:12px;margin:8px 0;border-radius:8px;border:none}
-button{background:gold;padding:15px;width:100%;border:none;border-radius:10px;font-weight:bold;font-size:16px}
+<style>body{background:#0a0a0a;color:#fff;font-family:Arial;padding:15px}
+input,select{width:100%;padding:14px;margin:8px 0;border-radius:10px;border:none;font-size:16px}
+button{background:gold;padding:16px;width:100%;border:none;border-radius:12px;font-weight:bold;font-size:18px;margin-top:10px}
+label{color:gold;font-weight:bold;margin-top:10px;display:block}
 </style></head>
 <body>
-<h2 style="color:gold">🔐 ADMIN COLLECTE</h2>
-<p>Ajoute ici les résultats que tu reçois sur WhatsApp</p>
+<h2 style="color:gold">🔐 COLLECTE TOGO</h2>
 <form method="POST">
-<select name="pays" required>
-<option value="TOGO">TOGO - LONATO</option>
-<option value="BENIN">BENIN - LNB</option>
-<option value="GHANA">GHANA - NLA</option>
-<option value="CI">COTE D'IVOIRE - LONACI</option>
+<label>Jour</label>
+<select name="jour" required>
+<option>LUNDI</option><option>MARDI</option><option>MERCREDI</option><option>JEUDI</option>
+<option>VENDREDI</option><option>SAMEDI</option><option>DIMANCHE</option>
 </select>
-<select name="loterie" required>
+<label>Heure du tirage</label>
+<select name="heure" required>
+<option value="09:00">09H - Matin</option>
+<option value="13:00">13H - Midi</option>
+<option value="18:00">18H - Soir</option>
+</select>
+<label>Nom du Jeu LONATO</label>
+<select name="jeu" required>
 <option>DIAMANT</option><option>BENZ</option><option>KADOO</option>
-<option>SAM</option><option>MATINAL</option><option>LONACI 5/90</option>
-<option>GHANA Monday Special</option><option>GHANA Friday Bonanza</option>
+<option>SAM</option><option>MATINAL</option><option>EVENEMENT SPECIAL</option>
 </select>
+<label>5 Numéros gagnants</label>
 <input name="numeros" placeholder="Ex: 33 - 49 - 21 - 46 - 86" required>
-<button type="submit">ENREGISTRER LE TIRAGE</button>
+<button type="submit">✅ ENREGISTRER</button>
 </form>
-<p><a href="/" style="color:gold">← Retour accueil</a></p>
+<p><a href="/" style="color:gold">← Retour</a></p>
 <h3>Historique</h3>
 {% for r in results %}
-<div style="background:#222;padding:10px;margin:5px;border-radius:5px">{{r[1]}} | {{r[2]}} | {{r[3]}} | {{r[4]}}
-<a href="/delete/{{r[0]}}" style="color:red">X</a></div>
+<div style="background:#1a1a1a;padding:8px;margin:5px;border-radius:5px;font-size:13px">
+{{r[1]}} {{r[2]}} | {{r[3]}} | {{r[4]}} <a href="/delete/{{r[0]}}" style="color:red;float:right">Supprimer</a></div>
 {% endfor %}
 </body></html>
 """
@@ -72,29 +74,26 @@ button{background:gold;padding:15px;width:100%;border:none;border-radius:10px;fo
 def home():
     conn = sqlite3.connect(DB)
     cur = conn.cursor()
-    cur.execute("SELECT * FROM tirages ORDER BY id DESC LIMIT 20")
+    cur.execute("SELECT * FROM tirages ORDER BY id DESC LIMIT 30")
     results = cur.fetchall()
     cur.execute("SELECT COUNT(*) FROM tirages")
     count = cur.fetchone()[0]
     conn.close()
-    return render_template_string(HOME_HTML, results=results, count=count)
+    return render_template_string(HOME, results=results, count=count)
 
 @app.route('/admin', methods=['GET','POST'])
 def admin():
     conn = sqlite3.connect(DB)
     if request.method == 'POST':
-        pays = request.form['pays']
-        loterie = request.form['loterie']
-        numeros = request.form['numeros']
-        date = datetime.now().strftime("%d/%m/%Y %H:%M")
-        conn.execute("INSERT INTO tirages (pays, loterie, numeros, date) VALUES (?,?,?,?)",
-                     (pays, loterie, numeros, date))
+        conn.execute("INSERT INTO tirages (jour, heure, jeu, numeros, date_saisie) VALUES (?,?,?,?,?)",
+                     (request.form['jour'], request.form['heure'], request.form['jeu'],
+                      request.form['numeros'], datetime.now().strftime("%d/%m %H:%M")))
         conn.commit()
     cur = conn.cursor()
     cur.execute("SELECT * FROM tirages ORDER BY id DESC")
     results = cur.fetchall()
     conn.close()
-    return render_template_string(ADMIN_HTML, results=results)
+    return render_template_string(ADMIN, results=results)
 
 @app.route('/delete/<id>')
 def delete(id):
@@ -103,15 +102,6 @@ def delete(id):
     conn.commit()
     conn.close()
     return redirect('/admin')
-
-# Fonction pour futur scraping automatique
-def scrape_togo():
-    try:
-        r = requests.get("https://www.loterie-togo.com", timeout=10)
-        soup = BeautifulSoup(r.text, 'html.parser')
-        return soup.title.text
-    except:
-        return None
 
 if __name__ == "__main__":
     app.run()
