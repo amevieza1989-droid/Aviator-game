@@ -193,3 +193,28 @@ def analyse():
 
 if __name__=='__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT",10000)))
+@app.route('/import-massif', methods=['GET', 'POST'])
+def import_massif():
+    message = ""
+    if request.method == 'POST':
+        file = request.files.get('file')
+        if file:
+            content = file.read().decode('utf-8')
+            lignes = content.splitlines()
+            count = 0
+            for ligne in lignes:
+                # Ici on sauve chaque tirage - adapte selon ta DB
+                # Pour l'instant on compte
+                if ligne.strip():
+                    count += 1
+            message = f"{count} tirages importés avec succès !"
+    return f'''
+    <h2>Import Massif MATINALE</h2>
+    <p style="color:green">{message}</p>
+    <form method="post" enctype="multipart/form-data">
+        <input type="file" name="file" accept=".txt">
+        <button type="submit">Importer</button>
+    </form>
+    <p>Ton fichier: MATINAL_RESULTS.txt</p>
+    <a href="/">Retour ACCUEIL</a>
+    '''
