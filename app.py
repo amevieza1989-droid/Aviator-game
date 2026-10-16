@@ -48,8 +48,6 @@ def insert_tirage(jour,heure,jeu,haut,bas,date,numero,created):
     th=sum(int(x.strip()) for x in haut.split('-') if x.strip().isdigit())
     tb=sum(int(x.strip()) for x in bas.split('-') if x.strip().isdigit()) if bas else 0
     conn=get_conn();c=conn.cursor()
-    c.execute("SELECT id FROM tirages WHERE jeu=? AND numero=? AND date=?",(jeu,numero,date))
-    if c.fetchone(): conn.close(); return False
     c.execute("INSERT INTO tirages VALUES (NULL,?,?,?,?,?,?,?,?,?,?)",(jour,heure,jeu,haut,bas,date,numero,created,th,tb))
     conn.commit();conn.close();return True
 
@@ -61,17 +59,18 @@ def fetch_all():
 @app.route('/')
 def home():
     rows=fetch_all()
-    return render_template_string(f"<html><head><meta name='viewport' content='width=device-width, initial-scale=1'><style>body{{background:#0a0a0a;color:#fff;font-family:Arial;padding:12px}}.btn{{display:block;background:#1a1a1a;border:1px solid gold;color:gold;padding:15px;margin:10px 0;border-radius:12px;text-align:center;text-decoration:none;font-weight:bold}}</style></head><body><h2 style='background:gold;color:#111;padding:15px;border-radius:15px;text-align:center'>LOTO V12.1 CAGE - {len(rows)} tirages</h2><a class='btn' href='/saisir'>SAISIR EN CAGE</a><a class='btn' href='/analyse'>ANALYSE VENDEUR</a></body></html>")
+    html_rows=""
+    for r in rows[:30]:
+        wa = urllib.parse.quote(f"LONATO {r[1]} {r[2]} {r[3]} #{r[7]} {r[6]} - WIN:{r[4]} {'MACHINE:'+r[5] if r[5] else ''} TOTAL:{r[9]}/{r[10]}")
+        html_rows+=f"<div style='background:#151515;padding:10px;margin:6px 0;border-radius:10px;border-left:3px solid gold'><b>{r[1]} {r[2]} {r[3]} #{r[7]}</b> {r[6]}<br>WIN: {r[4]} {'<br>MACHINE: '+r[5] if r[5] else ''}<br><small>TOTAL WIN:{r[9]} | MACHINE:{r[10]}</small><br><a href='https://wa.me/?text={wa}' style='color:#25D366;font-weight:bold;text-decoration:none'>↗ Partager WhatsApp</a></div>"
+    return render_template_string(f"<html><head><meta name='viewport' content='width=device-width, initial-scale=1'><style>body{{background:#0a0a0a;color:#fff;font-family:Arial;padding:12px}}.btn{{display:block;background:#1a1a1a;border:1px solid gold;color:gold;padding:15px;margin:10px 0;border-radius:12px;text-align:center;text-decoration:none;font-weight:bold}}</style></head><body><h2 style='background:gold;color:#111;padding:15px;border-radius:15px;text-align:center'>LOTO V13 FULL - {len(rows)} tirages</h2><a class='btn' href='/saisir'>SAISIR EN CAGE</a><a class='btn' href='/analyse'>ANALYSE VENDEUR (COMME SCREENSHOT)</a>{html_rows}</body></html>")
 
 @app.route('/saisir', methods=['GET','POST'])
 def saisir():
     if request.method=='POST':
-        # Récupère les 10 cases
-        h1=request.form.get('h1','');h2=request.form.get('h2','');h3=request.form.get('h3','');h4=request.form.get('h4','');h5=request.form.get('h5','')
-        b1=request.form.get('b1','');b2=request.form.get('b2','');b3=request.form.get('b3','');b4=request.form.get('b4','');b5=request.form.get('b5','')
-        haut="-".join([x for x in [h1,h2,h3,h4,h5] if x.strip()!=''])
-        bas="-".join([x for x in [b1,b2,b3,b4,b5] if x.strip()!=''])
-        insert_tirage(request.form.get('jour'),request.form.get('heure'),request.form.get('jeu'),haut,bas,request.form.get('date'),request.form.get('numero'),datetime.now().strftime("%d/%m %H:%M"))
+        h = "-".join([request.form.get(f'h{i}','').strip() for i in range(1,6) if request.form.get(f'h{i}','').strip()!=''])
+        b = "-".join([request.form.get(f'b{i}','').strip() for i in range(1,6) if request.form.get(f'b{i}','').strip()!=''])
+        insert_tirage(request.form.get('jour'),request.form.get('heure'),request.form.get('jeu'),h,b,request.form.get('date'),request.form.get('numero'),datetime.now().strftime("%d/%m %H:%M"))
         return redirect('/')
     return """
 <html><head><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -96,36 +95,40 @@ function calc(){
  else { document.getElementById('total').innerText='TOTAL HAUT (WIN): '+h+' | TOTAL BAS (MACHINE): '+b; }
 }
 function updateForm(){
- let j=document.getElementById('jour').value; let h=document.getElementById('heure').value;
- let jeuSel=document.getElementById('jeu'); let labelHeure=document.getElementById('labelHeure');
- if(planning[j]&&planning[j][h]){jeuSel.innerText=planning[j][h]; document.getElementById('jeu_input').value=planning[j][h];}
- if(j=='DIMANCHE'){ labelHeure.options.length=0; let opt=document.createElement('option'); opt.value='15:00'; opt.text='15H - DETENTE (10 numéros)'; labelHeure.add(opt); }
- else {
-   labelHeure.options.length=0;
-   let o1=document.createElement('option'); o1.value='09:00'; o1.text='09H - MATINALE (10 numéros)'; labelHeure.add(o1);
-   let o2=document.createElement('option'); o2.value='13:00'; o2.text='13H - '+ (planning[j]&&planning[j]['13:00']?planning[j]['13:00']:'') +' (5 numéros)'; labelHeure.add(o2);
-   let o3=document.createElement('option'); o3.value='18:00'; o3.text='18H - '+ (planning[j]&&planning[j]['18:00']?planning[j]['18:00']:'') +' (5 numéros)'; labelHeure.add(o3);
-   labelHeure.value=h;
+ let jour=document.getElementById('jour').value;
+ let heureSel=document.getElementById('heure');
+ let heure=heureSel.value;
+ let jeuBox=document.getElementById('jeu');
+ let jeuInput=document.getElementById('jeu_input');
+ if(jour=='DIMANCHE'){
+   heureSel.innerHTML='<option value="15:00">15H - DETENTE (10 numéros)</option>';
+   jeuBox.innerText='DETENTE'; jeuInput.value='DETENTE';
+ } else {
+   let old=heure;
+   heureSel.innerHTML='<option value="09:00">09H - MATINALE (10 numéros)</option><option value="13:00">13H - '+(planning[jour]?planning[jour]['13:00']:'')+' (5 numéros)</option><option value="18:00">18H - '+(planning[jour]?planning[jour]['18:00']:'')+' (5 numéros)</option>';
+   if(old && ['09:00','13:00','18:00'].includes(old)) heureSel.value=old;
+   heure=heureSel.value;
+   if(planning[jour] && planning[jour][heure]){ jeuBox.innerText=planning[jour][heure]; jeuInput.value=planning[jour][heure]; }
  }
- let basDiv=document.getElementById('basDiv');
- if(h=='13:00' || h=='18:00'){basDiv.classList.add('hidden');}
- else {basDiv.classList.remove('hidden');}
+ document.getElementById('basDiv').classList.toggle('hidden', heure=='13:00' || heure=='18:00');
  calc();
 }
 </script>
 </head><body>
-<label>N° Tr</label><input name="numero" form="mainForm" placeholder="22" required>
+<label>N° Tr</label><input id="numero_out" placeholder="22" required>
 <label>Jour</label><select id="jour" onchange="updateForm()"><option>LUNDI</option><option>MARDI</option><option>MERCREDI</option><option>JEUDI</option><option>VENDREDI</option><option>SAMEDI</option><option>DIMANCHE</option></select>
-<label>Heure</label><select id="heure" onchange="updateForm()"></select>
+<label>Heure</label><select id="heure" onchange="updateForm()"><option value="09:00">09H - MATINALE (10 numéros)</option><option value="13:00">13H - DIAMANT (5 numéros)</option><option value="18:00">18H - GOLD (5 numéros)</option></select>
 <label>Jeu</label><div id="jeu" class="jeu-box">MATINALE</div>
-<input type="hidden" id="jeu_input" name="jeu" form="mainForm" value="MATINALE">
+
 <form id="mainForm" method="POST" oninput="calc()">
 <input type="hidden" name="jour" id="jour_input">
 <input type="hidden" name="heure" id="heure_input">
+<input type="hidden" name="jeu" id="jeu_input" value="MATINALE">
+<input type="hidden" name="numero" id="numero_input">
 <input type="hidden" name="date" value="2026-10-16">
 
 <label>5 Numéros HAUT (WIN)</label>
-<div class="cage"><input id="h1" name="h1" type="number" min="0" max="90"><input id="h2" name="h2" type="number"><input id="h3" name="h3" type="number"><input id="h4" name="h4" type="number"><input id="h5" name="h5" type="number"></div>
+<div class="cage"><input id="h1" name="h1" type="number"><input id="h2" name="h2" type="number"><input id="h3" name="h3" type="number"><input id="h4" name="h4" type="number"><input id="h5" name="h5" type="number"></div>
 <div id="basDiv">
 <label>5 Numéros BAS (MACHINE)</label>
 <div class="cage"><input id="b1" name="b1" type="number"><input id="b2" name="b2" type="number"><input id="b3" name="b3" type="number"><input id="b4" name="b4" type="number"><input id="b5" name="b5" type="number"></div>
@@ -137,10 +140,11 @@ function updateForm(){
 document.getElementById('mainForm').addEventListener('submit', function(){
  document.getElementById('jour_input').value=document.getElementById('jour').value;
  document.getElementById('heure_input').value=document.getElementById('heure').value;
+ document.getElementById('numero_input').value=document.getElementById('numero_out').value;
 });
 updateForm();
 </script>
-<a href="/" style="color:gold">Accueil</a>
+<a href="/" style="color:gold;display:block;margin-top:10px">Accueil</a>
 </body></html>
 """
 
@@ -159,15 +163,15 @@ def analyse():
         cnt=Counter(nums)
         chauds=cnt.most_common(6)
         all_nums=[str(i).zfill(2) for i in range(0,91)]
-        retard=[n for n in all_nums if n not in cnt][:5]
-        if len(retard)<3: retard+= [n for n,c in cnt.most_common()[-3:] if n not in retard]
+        retard=[n for n in all_nums if n not in cnt][:6]
+        if len(retard)<3: retard+=[n for n,c in cnt.most_common()[-3:] if n not in retard][:3]
         prono=" ".join([c[0] for c in chauds[:2]] + retard[:3])
-        wa_text=f"A TENTER (retard): {' '.join(retard[:2])}\n\n⚠️ Numéros en retard général: {' '.join(retard)}\n\n💡 Mon prono pour le prochain tirage: {prono}\n\n👉 Abonnement VIP: 500F/jour - 2000F/semaine\n📲 Inbox pour recevoir le 2 sûr du jour\n\n#LONATO #LotoTogo #Prono"
+        wa_text=f"A TENTER (retard): {' '.join(retard[:2])}\n\n⚠️ Numéros en retard général: {' '.join(retard[:5])}\n\n💡 Mon prono pour le prochain tirage: {prono}\n\n👉 Abonnement VIP: 500F/jour - 2000F/semaine\n📲 Inbox pour recevoir le 2 sûr du jour\n\n#LONATO #LotoTogo #Prono"
         wa_encoded=urllib.parse.quote(wa_text)
         chaud_html="".join([f"<span style='display:inline-block;background:#FFD700;color:#111;padding:8px 14px;border-radius:20px;margin:4px;font-weight:bold'>{n} {round(c/total*100,1) if total else 0}% ({c}x)</span>" for n,c in chauds])
         retard_html="".join([f"<span style='display:inline-block;background:#2a0a0a;color:#ff6b6b;padding:8px 14px;border-radius:20px;margin:4px;font-weight:bold;border:1px solid #ff6b6b'>{n}</span>" for n in retard[:3]])
-        page+=f"<div style='background:#141414;padding:15px;margin:12px 0;border-radius:15px'><div style='display:flex;flex-wrap:wrap'>{chaud_html}</div><div style='background:#0f0f0f;padding:12px;border-radius:12px;margin-top:10px'><div style='color:#fff;font-weight:bold'>🎯 Prédiction par JEU LONATO</div><div style='color:gold;font-weight:bold'>{jeu_name} - {len(lst)} tirages</div><div style='margin-top:8px'><span style='color:#00ff88'>Chauds:</span> {chaud_html[:200]}</div><div style='margin-top:8px'><span style='color:#ff6b6b'>Retard (à jouer):</span> {retard_html}</div></div><div style='margin-top:12px;background:#000;border:2px solid gold;border-radius:15px;padding:12px'><div style='color:#fff;font-weight:bold'>💰 MESSAGE WHATSAPP PRÊT À VENDRE - COPIE/COLLE</div><textarea id='msg_{jeu_name}' style='width:100%;height:150px;background:#0a0a0a;color:#00ff66;border:none;margin-top:8px'>{wa_text}</textarea><button onclick=\"navigator.clipboard.writeText(document.getElementById('msg_{jeu_name}').value)\" style='width:100%;background:gold;color:#111;padding:12px;border:none;border-radius:12px;font-weight:bold;margin-top:8px'>📋 COPIER LE MESSAGE</button><a href='https://wa.me/?text={wa_encoded}' style='display:block;text-align:center;background:#25D366;color:#fff;padding:12px;border-radius:12px;text-decoration:none;font-weight:bold;margin-top:6px'>↗ ENVOYER SUR WHATSAPP</a></div></div>"
-    return f"<html><body style='background:#000;color:#fff;font-family:Arial;padding:8px'><a href='/' style='color:gold'>⬅ Accueil</a><h2 style='color:gold;text-align:center'>ANALYSE VENDEUR V12.1</h2>{page}</body></html>"
+        page+=f"<div style='background:#141414;padding:15px;margin:12px 0;border-radius:15px'><div style='color:gold;font-weight:bold;font-size:18px'>🎯 {jeu_name} - {len(lst)} tirages</div><div style='margin-top:10px;display:flex;flex-wrap:wrap'>{chaud_html}</div><div style='background:#0f0f0f;padding:12px;border-radius:12px;margin-top:10px'><div style='color:#fff'>Chauds</div><div style='margin-top:5px'>{chaud_html}</div><div style='margin-top:10px;color:#ff6b6b'>Retard (à jouer): {retard_html}</div></div><div style='margin-top:12px;background:#000;border:2px solid gold;border-radius:15px;padding:12px'><div style='color:#fff;font-weight:bold'>💰 MESSAGE WHATSAPP PRÊT À VENDRE - COPIE/COLLE</div><textarea id='msg_{jeu_name}' style='width:100%;height:160px;background:#0a0a0a;color:#00ff66;border:none;margin-top:8px;padding:10px'>{wa_text}</textarea><button onclick=\"navigator.clipboard.writeText(document.getElementById('msg_{jeu_name}').value);this.innerText='✅ COPIÉ!'\" style='width:100%;background:gold;color:#111;padding:12px;border:none;border-radius:12px;font-weight:bold;margin-top:8px'>📋 COPIER LE MESSAGE</button><a href='https://wa.me/?text={wa_encoded}' style='display:block;text-align:center;background:#25D366;color:#fff;padding:12px;border-radius:12px;text-decoration:none;font-weight:bold;margin-top:6px'>↗ ENVOYER SUR WHATSAPP</a></div></div>"
+    return f"<html><head><meta name='viewport' content='width=device-width, initial-scale=1'></head><body style='background:#000;color:#fff;font-family:Arial;padding:8px'><a href='/' style='color:gold'>⬅ Accueil</a><h2 style='color:gold;text-align:center'>ANALYSE VENDEUR V13 FULL</h2>{page}</body></html>"
 
 if __name__=='__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT",10000)))
