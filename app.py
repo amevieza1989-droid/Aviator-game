@@ -124,7 +124,7 @@ def historique():
             y,m,dd=d.split('-'); return f"{dd}/{m}/{y}"
         except: return d
     cards=''.join([f'<div style="background:#151515;padding:10px;margin:5px 0;border-radius:8px;border-left:4px solid gold"><b>{format_date(r[6])} - {r[3]} #{r[7]}</b><br>WIN:{r[4]} | MACHINE:{r[5]}<br><small style="color:#888">Ajouté le {r[8]}</small></div>' for r in rows[:300]]) or '<div style="text-align:center;color:#888;margin:20px">Base vide</div>'
-    return f'<html><body style="background:#000;color:#fff;font-family:Arial;padding:8px"><a href="/" style="color:gold">⬅ ACCUEIL</a><h3 style="color:gold;text-align:center;border:1px solid gold;padding:8px;border-radius:10px">HISTORIQUE - {jeu_filtre} ({total_rows})</h3><div style="background:#111;border:2px dashed gold;padding:10px;border-radius:10px">{msg}<form method="post" enctype="multipart/form-data"><select name="jeu_import" style="width:100%;padding:8px;border-radius:6px">{"".join([f"<option value={j}>{j}</option>" for j in JEUX_LISTE])}</select><input type="file" name="file" accept=".txt,.csv" style="width:100%;padding:8px;background:#222;color:#fff;border-radius:6px;margin-top:4px" required><button style="width:100%;background:gold;color:#111;padding:10px;border:none;border-radius:8px;font-weight:bold;margin-top:4px">IMPORTER PRO</button></form></div>{filtres}{cards}</body></html>'
+    return f'<html><body style="background:#000;color:#fff;font-family:Arial;padding:8px"><a href="/" style="color:gold">⬅ ACCUEIL</a><h3 style="color:gold;text-align:center;border:1px solid gold;padding:8px;border-radius:10px">HISTORIQUE - {jeu_filtre} ({total_rows})</h3><div style="background:#111;border:2px dashed gold;padding:10px;border-radius:10px">{msg}<form method="post" enctype="multipart/form-data"><select name="jeu_import" style="width:100%;padding:8px;border-radius:6px">{"".join([f"<option value={j}>{j}</option>" for j in JEUX_LISTE])}</select><input type="file" name="file" accept=".txt,.csv" style="width:100%;padding:8px;background:#222;color:#fff;border-radius:6px;margin-top:4px" required><button style="width:100%;background:gold;color:#111;padding:10px;border:none;border-radius:8px;font-weight:bold;margin-top:4px">IMPORTER PRO</button></form><a href="/reset" onclick="return confirm(\'⚠️ Effacer TOUT l historique?\')" style="display:block;background:#ff3333;color:#fff;padding:10px;border-radius:8px;text-align:center;text-decoration:none;margin-top:8px;font-weight:bold">🗑️ EFFACER TOUT L HISTORIQUE</a></div>{filtres}{cards}</body></html>'
 
 @app.route('/analyse')
 def analyse():
@@ -138,16 +138,13 @@ def analyse():
     chauds=cnt.most_common(20)
     tous=[str(i).zfill(2) for i in range(1,91)]
     retard=sorted(tous, key=lambda n: cnt.get(n,0))[:15]
-
     filtres='<div style="display:flex;flex-wrap:wrap;gap:5px;margin:10px 0">'
     for j in JEUX_LISTE:
         active=jeu_filtre==j
         filtres+=f'<a href="/analyse?jeu={j}" style="background:{"gold" if active else "#222"};color:{"#111" if active else "#fff"};padding:6px 10px;border-radius:20px;text-decoration:none;font-size:12px;font-weight:bold;border:1px solid gold">{j} ({len(fetch_all(j))})</a>'
     filtres+='</div>'
-
     chaud_html=''.join([f'<span style="display:inline-block;background:gold;color:#111;padding:6px 12px;border-radius:20px;margin:3px;font-weight:bold">{n} ({c}x)</span>' for n,c in chauds[:8]]) or '<span style="color:#888">Aucun</span>'
     retard_html=''.join([f'<span style="display:inline-block;background:#300;color:#ff6b6b;padding:6px 12px;border-radius:20px;margin:3px;border:1px solid #ff6b6b">{n} ({cnt.get(n,0)}x)</span>' for n in retard[:8]])
-
     if len(chauds)>=5:
         ticket1 = [n for n,c in chauds[:5]]
         ticket2 = [chauds[0][0], chauds[1][0], retard[0], retard[1], chauds[2][0]]
@@ -155,7 +152,6 @@ def analyse():
         random.seed(len(rows)); ticket4 = random.sample([n for n,c in chauds[:15]], 5)
     else:
         ticket1=ticket2=ticket3=ticket4=["01","02","03","04","05"]
-
     tickets_html=f'''
     <div style="margin-top:15px">
         <div style="background:linear-gradient(45deg,#FFD700,#FFA500);color:#111;padding:14px;border-radius:12px;margin:10px 0;font-weight:bold;border:2px solid #fff">
@@ -173,6 +169,11 @@ def analyse():
     </div>
     '''
     return f'<html><body style="background:#000;color:#fff;font-family:Arial;padding:8px"><a href="/" style="color:gold">⬅ ACCUEIL</a><h3 style="color:gold;text-align:center;border:1px solid gold;padding:8px;border-radius:10px">ANALYSE PRO - {jeu_filtre} - {len(rows)} tirages</h3>{filtres}<div style="background:#141414;padding:12px;border-radius:12px"><div><b>Chauds:</b><br>{chaud_html}</div><div style="margin-top:12px"><b>Retard:</b><br>{retard_html}</div>{tickets_html}</div></body></html>'
+
+@app.route('/reset')
+def reset():
+    init_db()
+    return redirect('/historique?jeu=TOUS')
 
 @app.route('/export/<fmt>')
 def export_file(fmt):
