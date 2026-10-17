@@ -7,6 +7,7 @@ import os, re, io, random
 app = Flask(__name__)
 DB = "loto.db"
 JEUX_LISTE = ["MATINALE","DIAMANT","GOLD","CASH","BOOM","BENZ","PRESTIGE","MILLION","SUPER","KADOO","KING","SAM","BINGO","DETENTE"]
+JEUX_10_BOULES = ["MATINALE","DETENTE"]
 
 def get_conn(): return sqlite3.connect(DB)
 def init_db():
@@ -51,16 +52,19 @@ def parse_file_pro(content, jeu_force):
         nums=re.findall(r'\d+',line_sans_date)
         clean=[n.zfill(2) for n in nums if n.isdigit() and 1<=int(n)<=90]
         if len(clean)>=5:
-            haut='-'.join(clean[:5]); bas='-'.join(clean[5:10]) if len(clean)>=10 else ''
+            haut='-'.join(clean[:5])
+            # SEULEMENT MATINALE ET DETENTE ont MACHINE
+            if jeu_force in JEUX_10_BOULES:
+                bas='-'.join(clean[5:10]) if len(clean)>=10 else ''
+            else:
+                bas=''
             res.append(('LUNDI',"09:00",jeu_force,haut,bas,date_str,numero))
     return res
 
 @app.route('/')
 def home():
     total=len(fetch_all())
-    rows=fetch_all()
-    last=f"#{rows[0][7]} - {rows[0][4]}" if rows else "Aucun"
-    return render_template_string(f'<html><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{{background:#0a0a0a;color:#fff;font-family:Arial;padding:12px}}.btn{{display:block;background:#1a1a1a;border:1px solid gold;color:gold;padding:16px;margin:10px 0;border-radius:12px;text-align:center;text-decoration:none;font-weight:bold}}small{{color:#aaa}}</style></head><body><div style="background:gold;color:#111;padding:14px;border-radius:12px;text-align:center;font-weight:bold">LOTO V16 INTELLIGENT 🧠<br>{total} tirages - Dernier: {last}</div><a class="btn" href="/saisir">🎰 SAISIR TIRAGE #717 DU JOUR</a><a class="btn" href="/historique">📜 HISTORIQUE + SAUVE</a><a class="btn" href="/analyse">🧠 ANALYSE INTELLIGENTE + IA</a><a class="btn" href="/export/TXT?jeu=TOUS">💾 BACKUP</a></body></html>')
+    return render_template_string(f'<html><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{{background:#0a0a0a;color:#fff;font-family:Arial;padding:12px}}.btn{{display:block;background:#1a1a1a;border:1px solid gold;color:gold;padding:16px;margin:10px 0;border-radius:12px;text-align:center;text-decoration:none;font-weight:bold}}</style></head><body><div style="background:gold;color:#111;padding:14px;border-radius:12px;text-align:center;font-weight:bold">LOTO V17 CORRIGÉ - {total} tirages<br>MATINALE/DETENTE=10b AUTRES=5b</div><a class="btn" href="/saisir">🎰 SAISIR</a><a class="btn" href="/historique">📜 HISTORIQUE</a><a class="btn" href="/analyse">🧠 ANALYSE IA</a></body></html>')
 
 @app.route('/historique', methods=['GET','POST'])
 def historique():
@@ -75,7 +79,7 @@ def historique():
         if content_to_parse:
             novos=parse_file_pro(content_to_parse, jeu_import)
             for j,h,je,ht,bs,dt,num in novos: insert_tirage(j,h,je,ht,bs,dt,num)
-            msg=f'<div style="background:#25D366;color:#fff;padding:12px;border-radius:10px;font-weight:bold">✅ {len(novos)} importés - IA mise à jour!</div>'
+            msg=f'<div style="background:#25D366;color:#fff;padding:12px;border-radius:10px;font-weight:bold">✅ {len(novos)} importés!</div>'
     rows=fetch_all(jeu_filtre); total_rows=len(rows)
     def format_date(d):
         if not d or d.strip()=="": return "ANCIEN"
@@ -87,100 +91,67 @@ def historique():
         active=jeu_filtre==j
         filtres+=f'<a href="/historique?jeu={j}" style="background:{"gold" if active else "#222"};color:{"#111" if active else "#fff"};padding:6px 10px;border-radius:20px;text-decoration:none;font-size:11px;font-weight:bold;border:1px solid gold">{j} ({cnt})</a>'
     filtres+='</div>'
-    cards=''.join([f'<div style="background:#151515;padding:8px;margin:4px 0;border-radius:8px;border-left:4px solid gold"><b>{format_date(r[6])} #{r[7]}</b> WIN:{r[4]}<br><small>MACHINE:{r[5]}</small></div>' for r in rows[:400]]) or '<div style="color:#888;text-align:center">Base vide</div>'
+    cards=''.join([f'<div style="background:#151515;padding:8px;margin:4px 0;border-radius:8px;border-left:4px solid {"#25D366" if r[3] in JEUX_10_BOULES else "gold"}"><b>{format_date(r[6])} {r[3]} #{r[7]}</b> {"WIN:"+r[4]+" MACHINE:"+r[5] if r[5] else "NUMÉROS:"+r[4]}<br><small>{"10 boules" if r[5] else "5 boules"}</small></div>' for r in rows[:500]]) or '<div style="color:#888;text-align:center">Base vide</div>'
     return f'<html><body style="background:#000;color:#fff;font-family:Arial;padding:8px"><a href="/" style="color:gold">⬅ ACCUEIL</a><h3 style="color:gold;text-align:center">HISTORIQUE - {jeu_filtre} ({total_rows})</h3><div style="background:#111;border:2px solid gold;padding:10px;border-radius:12px">{msg}<form method="post" enctype="multipart/form-data"><select name="jeu_import" style="width:100%;padding:8px;border-radius:6px;margin-bottom:6px">{"".join([f"<option>{j}</option>" for j in JEUX_LISTE])}</select><textarea name="pasted_text" style="width:100%;height:100px;background:#222;color:#fff;border:1px solid #25D366;border-radius:8px;padding:6px"></textarea><button style="width:100%;background:#25D366;color:#fff;padding:10px;border:none;border-radius:8px;font-weight:bold;margin-top:4px">🚀 IMPORTER</button></form><div style="display:flex;gap:6px;margin-top:8px"><a href="/export/TXT?jeu=TOUS" style="flex:1;background:gold;color:#111;padding:8px;border-radius:6px;text-align:center;text-decoration:none;font-weight:bold">💾 BACKUP</a><a href="/reset" onclick="return confirm(\'Effacer?\')" style="flex:1;background:#ff3333;color:#fff;padding:8px;border-radius:6px;text-align:center;text-decoration:none">🗑️</a></div></div>{filtres}{cards}</body></html>'
 
 @app.route('/analyse')
 def analyse():
     jeu_filtre=request.args.get('jeu','MATINALE'); rows=fetch_all(jeu_filtre)
-    if not rows:
-        return '<html><body style="background:#000;color:#fff;padding:12px"><a href="/" style="color:gold">⬅ ACCUEIL</a><br>Base vide</body></html>'
-    all_nums=[]; paires=Counter(); annonce=defaultdict(Counter)
-    prev_win=[]
-    for idx, r in enumerate(reversed(rows)): # du plus ancien au plus recent pour annonceur
+    if not rows: return '<html><body style="background:#000;color:#fff;padding:12px"><a href="/" style="color:gold">⬅</a><br>Base vide</body></html>'
+    all_nums=[]; paires=Counter(); annonce=defaultdict(Counter); prev_win=[]
+    for r in reversed(rows):
         win_nums=[x.zfill(2) for x in r[4].split('-') if x.strip().isdigit()]
         all_nums.extend(win_nums)
-        # paires
         for i in range(len(win_nums)):
             for j in range(i+1,len(win_nums)):
                 paires[tuple(sorted([win_nums[i],win_nums[j]]))]+=1
-        # annonceur: quel numero annonce le tirage suivant
         if prev_win:
             for p in prev_win:
-                for cur in win_nums:
-                    annonce[p][cur]+=1
+                for cur in win_nums: annonce[p][cur]+=1
         prev_win=win_nums
-    
-    cnt=Counter(all_nums)
-    chauds=cnt.most_common(20)
+    cnt=Counter(all_nums); chauds=cnt.most_common(20)
     tous=[str(i).zfill(2) for i in range(1,91)]
     retard=sorted(tous, key=lambda n: cnt.get(n,0))
-    
-    # Dernier tirage pour annonceur
-    last_nums=[x for x in rows[0][4].split('-') if x.strip().isdigit()]
-    last_nums=[x.zfill(2) for x in last_nums]
-    
+    last_nums=[x.zfill(2) for x in rows[0][4].split('-') if x.strip().isdigit()]
     annonce_html=""
     for ln in last_nums[:3]:
         if ln in annonce:
             top_annonce=annonce[ln].most_common(3)
-            annonce_html+=f'<div style="background:#111;border:1px solid #555;padding:6px;margin:3px;border-radius:6px"><b>Après {ln} sort souvent:</b> {" ".join([f"{n}({c}x)" for n,c in top_annonce])}</div>'
-    
+            annonce_html+=f'<div style="background:#111;border:1px solid #555;padding:6px;margin:3px;border-radius:6px"><b>Après {ln}:</b> {" ".join([f"{n}({c}x)" for n,c in top_annonce])}</div>'
     top_paires=paires.most_common(8)
     paires_html=''.join([f'<span style="display:inline-block;background:#222;border:1px solid gold;color:gold;padding:5px 8px;border-radius:12px;margin:3px;font-size:12px">{a}-{b} ({c}x)</span>' for (a,b),c in top_paires])
-    
     chaud_html=''.join([f'<span style="display:inline-block;background:gold;color:#111;padding:5px 10px;border-radius:15px;margin:2px;font-weight:bold;font-size:13px">{n}({c})</span>' for n,c in chauds[:10]])
     retard_html=''.join([f'<span style="display:inline-block;background:#300;color:#ff6b6b;padding:5px 10px;border-radius:15px;margin:2px;border:1px solid #ff6b6b;font-size:13px">{n}({cnt.get(n,0)})</span>' for n in retard[:10]])
-    
-    # TICKETS INTELLIGENTS
     ticket1=[n for n,c in chauds[:5]]
-    # Ticket annonceur basé sur dernier tirage
     ticket_annonce=[]
     for ln in last_nums:
-        if ln in annonce and annonce[ln]:
-            ticket_annonce.extend([n for n,_ in annonce[ln].most_common(2)])
+        if ln in annonce and annonce[ln]: ticket_annonce.extend([n for n,_ in annonce[ln].most_common(2)])
     ticket_annonce=list(dict.fromkeys(ticket_annonce))[:5]
     if len(ticket_annonce)<5: ticket_annonce+= [n for n,c in chauds[:5] if n not in ticket_annonce]
     ticket_annonce=ticket_annonce[:5]
-    
     ticket_paires=[top_paires[0][0][0], top_paires[0][0][1], top_paires[1][0][0], top_paires[1][0][1], chauds[0][0]] if top_paires else ticket1
     ticket_retard=retard[:5]
-    
     filtres='<div style="display:flex;flex-wrap:wrap;gap:4px;margin:8px 0">'
     for j in JEUX_LISTE:
         active=jeu_filtre==j
         filtres+=f'<a href="/analyse?jeu={j}" style="background:{"gold" if active else "#222"};color:{"#111" if active else "#fff"};padding:5px 8px;border-radius:15px;text-decoration:none;font-size:10px;font-weight:bold;border:1px solid gold">{j} ({len(fetch_all(j))})</a>'
     filtres+='</div>'
-    
     return f'''<html><body style="background:#000;color:#fff;font-family:Arial;padding:6px">
     <a href="/" style="color:gold">⬅ ACCUEIL</a>
     <h3 style="color:gold;text-align:center;border:1px solid gold;padding:6px;border-radius:8px">🧠 IA - {jeu_filtre} - {len(rows)} tirages - Dernier #{rows[0][7]}</h3>
     {filtres}
     <div style="background:#141414;padding:10px;border-radius:10px">
-        <div><b>🔥 Chauds (plus sortis):</b><br>{chaud_html}</div>
-        <div style="margin-top:8px"><b>❄️ Retard (moins sortis - vont sortir):</b><br>{retard_html}</div>
-        <div style="margin-top:8px"><b>🔗 Paires qui sortent ensemble:</b><br>{paires_html}</div>
-        <div style="margin-top:8px"><b>🔮 Annonceurs (après dernier tirage { "-".join(last_nums) }):</b><br>{annonce_html or "<small>Pas assez de données</small>"}</div>
-        
+        <div><b>🔥 Chauds:</b><br>{chaud_html}</div>
+        <div style="margin-top:8px"><b>❄️ Retard:</b><br>{retard_html}</div>
+        <div style="margin-top:8px"><b>🔗 Paires:</b><br>{paires_html}</div>
+        <div style="margin-top:8px"><b>🔮 Annonceurs après {"-".join(last_nums)}:</b><br>{annonce_html or "<small>Pas assez de données</small>"}</div>
         <div style="margin-top:12px">
-            <div style="background:gold;color:#111;padding:12px;border-radius:10px;margin:6px 0;font-weight:bold">
-                🎯 TICKET 1 - CHAUDS<br><span style="font-size:20px">{" - ".join(ticket1)}</span><br><small>Les plus fréquents</small>
-            </div>
-            <div style="background:#111;border:2px solid #25D366;color:#25D366;padding:12px;border-radius:10px;margin:6px 0;font-weight:bold">
-                🧠 TICKET 2 - ANNONCEUR INTELLIGENT<br><span style="font-size:20px;color:#fff">{" - ".join(ticket_annonce)}</span><br><small style="color:#aaa">Basé sur ton dernier tirage #{rows[0][7]} - Ce qui sort après {",".join(last_nums[:2])}</small>
-            </div>
-            <div style="background:#111;border:2px solid gold;color:gold;padding:12px;border-radius:10px;margin:6px 0;font-weight:bold">
-                🔗 TICKET 3 - PAIRES<br><span style="font-size:20px;color:#fff">{" - ".join(ticket_paires)}</span><br><small style="color:#aaa">Les paires qui sortent ensemble</small>
-            </div>
-            <div style="background:#222;border:2px solid #ff6b6b;color:#ff6b6b;padding:12px;border-radius:10px;margin:6px 0;font-weight:bold">
-                ⏰ TICKET 4 - RETARD<br><span style="font-size:20px;color:#fff">{" - ".join(ticket_retard)}</span><br><small style="color:#aaa">Les moins sortis - grosse cote</small>
-            </div>
+            <div style="background:gold;color:#111;padding:12px;border-radius:10px;margin:6px 0;font-weight:bold">🎯 TICKET 1 - CHAUDS<br><span style="font-size:20px">{" - ".join(ticket1)}</span></div>
+            <div style="background:#111;border:2px solid #25D366;color:#25D366;padding:12px;border-radius:10px;margin:6px 0;font-weight:bold">🧠 TICKET 2 - ANNONCEUR<br><span style="font-size:20px;color:#fff">{" - ".join(ticket_annonce)}</span></div>
+            <div style="background:#111;border:2px solid gold;color:gold;padding:12px;border-radius:10px;margin:6px 0;font-weight:bold">🔗 TICKET 3 - PAIRES<br><span style="font-size:20px;color:#fff">{" - ".join(ticket_paires)}</span></div>
+            <div style="background:#222;border:2px solid #ff6b6b;color:#ff6b6b;padding:12px;border-radius:10px;margin:6px 0;font-weight:bold">⏰ TICKET 4 - RETARD<br><span style="font-size:20px;color:#fff">{" - ".join(ticket_retard)}</span></div>
         </div>
-        <div style="background:#0a0a0a;border:1px dashed gold;padding:8px;border-radius:8px;margin-top:10px;font-size:11px;color:#aaa">
-            💡 IA EXPLIQUE: Le Loto est aléatoire, mais l'IA apprend: si après le 62 le 33 sort souvent, elle te le propose. Ajoute chaque jour le nouveau tirage (#717 aujourd'hui) et l'IA devient plus intelligente!
-        </div>
-    </div>
-    </body></html>'''
+    </div></body></html>'''
 
 @app.route('/reset')
 def reset():
@@ -203,7 +174,51 @@ def saisir():
         b='-'.join([request.form.get(f'b{i}','').zfill(2) for i in range(1,6) if request.form.get(f'b{i}','')])
         insert_tirage(request.form.get('jour'),request.form.get('heure'),request.form.get('jeu'),h,b,request.form.get('date'),request.form.get('numero'))
         return redirect(f'/analyse?jeu={request.form.get("jeu")}')
-    return f"""<html><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{{background:#0a0a0a;color:#fff;font-family:Arial;padding:10px}}select,input{{width:100%;padding:12px;margin:4px 0;border-radius:6px;border:1px solid #333}}label{{color:gold;font-weight:bold;font-size:12px}}.jeu-box{{background:#111;border:2px solid gold;color:gold;text-align:center;padding:10px;border-radius:8px;font-weight:bold}}.cage{{display:flex;gap:3px}}.cage input{{width:18%;text-align:center;font-weight:bold}}</style></head><body><h3 style="color:gold;text-align:center">🧠 SAISIR - IA VA APPRENDRE</h3><label>N° TIRAGE (ex: 717)</label><input id="numero_out" type="number" min="1" max="2000" value="717" required><label>DATE</label><input type="date" id="date_out" value="{today}" required><label>JEU</label><select id="jeu" class="jeu-box"><option>MATINALE</option><option>DIAMANT</option><option>GOLD</option><option>CASH</option><option>BOOM</option><option>BENZ</option><option>PRESTIGE</option><option>MILLION</option><option>SUPER</option><option>KADOO</option><option>KING</option><option>SAM</option><option>BINGO</option><option>DETENTE</option></select><form id="mainForm" method="POST"><input type="hidden" name="jour" value="LUNDI"><input type="hidden" name="heure" value="09:00"><input type="hidden" name="jeu" id="jeu_input" value="MATINALE"><input type="hidden" name="numero" id="numero_input"><input type="hidden" name="date" id="date_input"><div style="margin:10px 0"><label>WIN (5) - EX: 62 55 33 51 81</label><div class="cage"><input name="h1" placeholder="62" required><input name="h2" placeholder="55" required><input name="h3" placeholder="33" required><input name="h4" placeholder="51" required><input name="h5" placeholder="81" required></div></div><div><label>MACHINE (5) - EX: 38 61 52 26 14</label><div class="cage"><input name="b1" placeholder="38"><input name="b2" placeholder="61"><input name="b3" placeholder="52"><input name="b4" placeholder="26"><input name="b5" placeholder="14"></div></div><button style="width:100%;background:gold;color:#111;padding:14px;border:none;border-radius:10px;font-weight:bold;margin-top:12px">🧠 ENREGISTRER ET FAIRE APPRENDRE L IA</button></form><script>document.getElementById('mainForm').addEventListener('submit', function(){{document.getElementById('jeu_input').value=document.getElementById('jeu').value;document.getElementById('numero_input').value=document.getElementById('numero_out').value;document.getElementById('date_input').value=document.getElementById('date_out').value;}});</script><a href="/" style="color:gold;display:block;text-align:center;margin-top:12px">⬅ Retour</a></body></html>"""
+    return f"""<html><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{{background:#0a0a0a;color:#fff;font-family:Arial;padding:10px}}select,input{{width:100%;padding:12px;margin:4px 0;border-radius:6px;border:1px solid #333}}label{{color:gold;font-weight:bold;font-size:12px}}.cage{{display:flex;gap:3px}}.cage input{{width:18%;text-align:center;font-weight:bold}}.hidden{{display:none}}</style>
+<script>
+const JEUX_10=["MATINALE","DETENTE"];
+function updateForm() {{
+    let jeu=document.getElementById('jeu').value;
+    let machineDiv=document.getElementById('machineDiv');
+    let labelWin=document.getElementById('labelWin');
+    if (JEUX_10.includes(jeu)) {{
+        machineDiv.classList.remove('hidden');
+        labelWin.innerText="WIN (5) - Matinale/Detente 10 boules";
+    }} else {{
+        machineDiv.classList.add('hidden');
+        labelWin.innerText="NUMÉROS (5) - "+jeu+" 5 boules seulement";
+    }}
+    document.getElementById('jeu_input').value=jeu;
+}}
+</script></head><body>
+<h3 style="color:gold;text-align:center">🧠 SAISIR CORRIGÉ</h3>
+<label style="color:#25D366">N° TIRAGE (ex: 717)</label><input id="numero_out" type="number" min="1" max="2000" value="717" required>
+<label>DATE</label><input type="date" id="date_out" value="{today}" required>
+<label>JEU - Choisis bien!</label>
+<select id="jeu" onchange="updateForm()" style="background:#111;border:2px solid gold;color:gold;text-align:center;font-weight:bold;padding:12px">
+    <option value="MATINALE">MATINALE - 10 BOULES (WIN+MACHINE)</option>
+    <option value="DETENTE">DETENTE - 10 BOULES (WIN+MACHINE)</option>
+    <option value="DIAMANT">DIAMANT - 5 BOULES</option>
+    <option value="GOLD">GOLD - 5 BOULES</option>
+    <option value="CASH">CASH - 5 BOULES</option>
+    <option value="BOOM">BOOM - 5 BOULES</option>
+    <option value="BENZ" selected>BENZ - 5 BOULES</option>
+    <option value="PRESTIGE">PRESTIGE - 5 BOULES</option>
+    <option value="MILLION">MILLION - 5 BOULES</option>
+    <option value="SUPER">SUPER - 5 BOULES</option>
+    <option value="KADOO">KADOO - 5 BOULES</option>
+    <option value="KING">KING - 5 BOULES</option>
+    <option value="SAM">SAM - 5 BOULES</option>
+    <option value="BINGO">BINGO - 5 BOULES</option>
+</select>
+<form id="mainForm" method="POST">
+<input type="hidden" name="jour" value="LUNDI"><input type="hidden" name="heure" value="09:00"><input type="hidden" name="jeu" id="jeu_input" value="BENZ"><input type="hidden" name="numero" id="numero_input"><input type="hidden" name="date" id="date_input">
+<div style="margin:10px 0"><label id="labelWin">NUMÉROS (5) - BENZ 5 boules seulement</label><div class="cage"><input name="h1" placeholder="62" required><input name="h2" placeholder="55" required><input name="h3" placeholder="33" required><input name="h4" placeholder="51" required><input name="h5" placeholder="81" required></div></div>
+<div id="machineDiv" class="hidden"><label style="color:#25D366">MACHINE (5) - UNIQUEMENT MATINALE/DETENTE</label><div class="cage"><input name="b1" placeholder="38"><input name="b2" placeholder="61"><input name="b3" placeholder="52"><input name="b4" placeholder="26"><input name="b5" placeholder="14"></div></div>
+<button style="width:100%;background:gold;color:#111;padding:14px;border:none;border-radius:10px;font-weight:bold;margin-top:12px">🧠 ENREGISTRER - IA APPREND</button>
+</form>
+<script>document.getElementById('mainForm').addEventListener('submit', function(){{document.getElementById('numero_input').value=document.getElementById('numero_out').value;document.getElementById('date_input').value=document.getElementById('date_out').value;}}); updateForm();</script>
+<a href="/" style="color:gold;display:block;text-align:center;margin-top:12px">⬅ Retour</a></body></html>"""
 
 if __name__=='__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT",10000)))
