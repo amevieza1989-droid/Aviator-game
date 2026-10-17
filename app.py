@@ -99,18 +99,33 @@ def parse_file_pro(content, jeu_force):
 @app.route('/')
 def home():
     total=len(fetch_all())
-    return render_template_string(f'<html><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{{background:#0a0a0a;color:#fff;font-family:Arial;padding:12px}}.btn{{display:block;background:#1a1a1a;border:1px solid gold;color:gold;padding:16px;margin:10px 0;border-radius:12px;text-align:center;text-decoration:none;font-weight:bold}}</style></head><body><div style="background:gold;color:#111;padding:14px;border-radius:12px;text-align:center;font-weight:bold">LOTO V14 FINAL - {total} tirages</div><a class="btn" href="/saisir">🎰 SAISIR EN CAGE</a><a class="btn" href="/historique">📜 HISTORIQUE PAR JEU</a><a class="btn" href="/analyse">📊 ANALYSE + TICKETS A JOUER</a></body></html>')
+    return render_template_string(f'<html><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{{background:#0a0a0a;color:#fff;font-family:Arial;padding:12px}}.btn{{display:block;background:#1a1a1a;border:1px solid gold;color:gold;padding:16px;margin:10px 0;border-radius:12px;text-align:center;text-decoration:none;font-weight:bold}}</style></head><body><div style="background:gold;color:#111;padding:14px;border-radius:12px;text-align:center;font-weight:bold">LOTO V14.2 ANTI-BUG - {total} tirages</div><a class="btn" href="/saisir">🎰 SAISIR EN CAGE</a><a class="btn" href="/historique">📜 HISTORIQUE + COLLER TEXTE</a><a class="btn" href="/analyse">📊 ANALYSE + TICKETS A JOUER</a></body></html>')
 
 @app.route('/historique', methods=['GET','POST'])
 def historique():
     jeu_filtre=request.args.get('jeu','TOUS')
     msg=''
     if request.method=='POST':
-        f=request.files.get('file'); jeu_import=request.form.get('jeu_import','MATINALE')
-        if f and f.filename:
-            novos=parse_file_pro(f.read().decode('utf-8', errors='ignore'), jeu_import)
+        jeu_import=request.form.get('jeu_import','MATINALE')
+        content_to_parse = None
+        
+        # 1. Priorité au TEXTE COLLE
+        pasted = request.form.get('pasted_text','').strip()
+        if pasted:
+            content_to_parse = pasted
+        else:
+            # 2. Sinon fichier
+            f=request.files.get('file')
+            if f and f.filename:
+                content_to_parse = f.read().decode('utf-8', errors='ignore')
+        
+        if content_to_parse:
+            novos=parse_file_pro(content_to_parse, jeu_import)
             for j,h,je,ht,bs,dt,num in novos: insert_tirage(j,h,je,ht,bs,dt,num)
-            msg=f'<div style="background:#25D366;color:#fff;padding:10px;border-radius:10px">✅ {len(novos)} importés en {jeu_import} avec vraies dates</div>'
+            msg=f'<div style="background:#25D366;color:#fff;padding:12px;border-radius:10px;font-weight:bold">✅ {len(novos)} tirages importés en {jeu_import} - Prêt à jouer!</div>'
+        else:
+            msg='<div style="background:#ff3333;color:#fff;padding:10px;border-radius:10px">❌ Colle du texte ou choisis un fichier</div>'
+
     rows=fetch_all(jeu_filtre)
     total_rows = len(rows)
     filtres='<div style="display:flex;flex-wrap:wrap;gap:5px;margin:10px 0">'
@@ -123,8 +138,28 @@ def historique():
         try:
             y,m,dd=d.split('-'); return f"{dd}/{m}/{y}"
         except: return d
-    cards=''.join([f'<div style="background:#151515;padding:10px;margin:5px 0;border-radius:8px;border-left:4px solid gold"><b>{format_date(r[6])} - {r[3]} #{r[7]}</b><br>WIN:{r[4]} | MACHINE:{r[5]}<br><small style="color:#888">Ajouté le {r[8]}</small></div>' for r in rows[:300]]) or '<div style="text-align:center;color:#888;margin:20px">Base vide</div>'
-    return f'<html><body style="background:#000;color:#fff;font-family:Arial;padding:8px"><a href="/" style="color:gold">⬅ ACCUEIL</a><h3 style="color:gold;text-align:center;border:1px solid gold;padding:8px;border-radius:10px">HISTORIQUE - {jeu_filtre} ({total_rows})</h3><div style="background:#111;border:2px dashed gold;padding:10px;border-radius:10px">{msg}<form method="post" enctype="multipart/form-data"><select name="jeu_import" style="width:100%;padding:8px;border-radius:6px">{"".join([f"<option value={j}>{j}</option>" for j in JEUX_LISTE])}</select><input type="file" name="file" accept=".txt,.csv" style="width:100%;padding:8px;background:#222;color:#fff;border-radius:6px;margin-top:4px" required><button style="width:100%;background:gold;color:#111;padding:10px;border:none;border-radius:8px;font-weight:bold;margin-top:4px">IMPORTER PRO</button></form><a href="/reset" onclick="return confirm(\'⚠️ Effacer TOUT l historique?\')" style="display:block;background:#ff3333;color:#fff;padding:10px;border-radius:8px;text-align:center;text-decoration:none;margin-top:8px;font-weight:bold">🗑️ EFFACER TOUT L HISTORIQUE</a></div>{filtres}{cards}</body></html>'
+    cards=''.join([f'<div style="background:#151515;padding:10px;margin:5px 0;border-radius:8px;border-left:4px solid gold"><b>{format_date(r[6])} - {r[3]} #{r[7]}</b><br>WIN:{r[4]} | MACHINE:{r[5]}<br><small style="color:#888">Ajouté le {r[8]}</small></div>' for r in rows[:300]]) or '<div style="text-align:center;color:#888;margin:20px">Base vide - Colle tes résultats ci-dessus</div>'
+    
+    return f'''<html><body style="background:#000;color:#fff;font-family:Arial;padding:8px">
+    <a href="/" style="color:gold">⬅ ACCUEIL</a>
+    <h3 style="color:gold;text-align:center;border:1px solid gold;padding:8px;border-radius:10px">HISTORIQUE - {jeu_filtre} ({total_rows})</h3>
+    <div style="background:#111;border:2px solid gold;padding:12px;border-radius:12px">{msg}
+        <form method="post" enctype="multipart/form-data">
+            <label style="color:gold;font-weight:bold;font-size:13px">JEU:</label>
+            <select name="jeu_import" style="width:100%;padding:10px;border-radius:6px;margin-bottom:8px">{"".join([f"<option value={j}>{j}</option>" for j in JEUX_LISTE])}</select>
+            
+            <label style="color:#25D366;font-weight:bold;font-size:14px">✅ METHODE 1 - COLLER TEXTE (RECOMMANDÉ - ANTI-BUG):</label>
+            <textarea name="pasted_text" placeholder="Colle ici tes résultats... Ex: 450 08/12 05-12-23-45-67-12-34-56-78-90" style="width:100%;height:120px;background:#222;color:#fff;border:1px solid #25D366;border-radius:8px;padding:8px;margin-top:4px"></textarea>
+            <button style="width:100%;background:#25D366;color:#fff;padding:12px;border:none;border-radius:8px;font-weight:bold;margin-top:6px">🚀 IMPORTER LE TEXTE COLLÉ</button>
+            
+            <div style="text-align:center;color:#666;margin:10px 0">--- OU ---</div>
+            
+            <label style="color:#888;font-size:12px">METHODE 2 - FICHIER (peut bugger):</label>
+            <input type="file" name="file" accept=".txt,.csv" style="width:100%;padding:8px;background:#222;color:#fff;border-radius:6px;margin-top:4px">
+            <button style="width:100%;background:#333;color:#fff;padding:8px;border:none;border-radius:8px;margin-top:4px">Importer fichier</button>
+        </form>
+        <a href="/reset" onclick="return confirm('⚠️ Effacer TOUT l historique?')" style="display:block;background:#ff3333;color:#fff;padding:10px;border-radius:8px;text-align:center;text-decoration:none;margin-top:12px;font-weight:bold">🗑️ EFFACER TOUT L HISTORIQUE</a>
+    </div>{filtres}{cards}</body></html>'''
 
 @app.route('/analyse')
 def analyse():
