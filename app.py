@@ -33,11 +33,6 @@ init_db()
 def insert_tirage(jour,heure,jeu,haut,bas,date,numero):
     th=sum(int(x) for x in haut.split('-') if x.strip().isdigit()) if haut else 0
     tb=sum(int(x) for x in bas.split('-') if x.strip().isdigit()) if bas else 0
-    try:
-        if '/' in date and '-' not in date:
-            d,m,y=date.split('/')
-            date=f"{y}-{m.zfill(2)}-{d.zfill(2)}"
-    except: pass
     conn=get_conn();c=conn.cursor()
     c.execute('INSERT INTO tirages VALUES (NULL,?,?,?,?,?,?,?,?,?,?)',(jour,heure,jeu,haut,bas,date,numero,datetime.now().strftime('%d/%m/%Y %H:%M'),th,tb))
     conn.commit();conn.close()
@@ -55,7 +50,7 @@ def parse_file_pro(content, jeu_force):
     for line in content.splitlines():
         line=line.strip()
         if not line: continue
-        date_str = None
+        date_str = ""
         numero = None
         line_sans_date = line
         
@@ -80,16 +75,14 @@ def parse_file_pro(content, jeu_force):
                     else: dd,mm,yy = d_raw.split('-')
                     date_str = f"{yy}-{mm.zfill(2)}-{dd.zfill(2)}"
         
-        # Si pas de date trouvée = ancien tirage sans date, on met une date neutre
+        # SI PAS DE DATE -> on laisse vide, on n'invente rien
         if not date_str:
-            date_str = "2024-12-01"
+            date_str = ""
         
         if not numero:
-            # cherche un numero en fin de ligne
             nums_tmp = re.findall(r'\b\d{2,4}\b', line)
             if nums_tmp:
-                # le numero est souvent le plus grand ou en fin
-                numero = nums_tmp[-1] if int(nums_tmp[-1]) < 1000 else nums_tmp[0]
+                numero = nums_tmp[-1] if int(nums_tmp[-1]) < 2000 else nums_tmp[0]
             else:
                 numero = str(len(res)+1)
 
@@ -109,7 +102,7 @@ def parse_file_pro(content, jeu_force):
 @app.route('/')
 def home():
     total=len(fetch_all())
-    return render_template_string(f'<html><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{{background:#0a0a0a;color:#fff;font-family:Arial;padding:12px}}.btn{{display:block;background:#1a1a1a;border:1px solid gold;color:gold;padding:16px;margin:10px 0;border-radius:12px;text-align:center;text-decoration:none;font-weight:bold}}</style></head><body><div style="background:gold;color:#111;padding:14px;border-radius:12px;text-align:center;font-weight:bold">LOTO V14.3 PROPRE - {total} tirages</div><a class="btn" href="/saisir">🎰 SAISIR EN CAGE</a><a class="btn" href="/historique">📜 HISTORIQUE + COLLER TEXTE</a><a class="btn" href="/analyse">📊 ANALYSE + TICKETS</a></body></html>')
+    return render_template_string(f'<html><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{{background:#0a0a0a;color:#fff;font-family:Arial;padding:12px}}.btn{{display:block;background:#1a1a1a;border:1px solid gold;color:gold;padding:16px;margin:10px 0;border-radius:12px;text-align:center;text-decoration:none;font-weight:bold}}</style></head><body><div style="background:gold;color:#111;padding:14px;border-radius:12px;text-align:center;font-weight:bold">LOTO V14.4 ZÉRO FAKE - {total} tirages</div><a class="btn" href="/saisir">🎰 SAISIR EN CAGE</a><a class="btn" href="/historique">📜 HISTORIQUE</a><a class="btn" href="/analyse">📊 ANALYSE + TICKETS</a></body></html>')
 
 @app.route('/historique', methods=['GET','POST'])
 def historique():
@@ -129,9 +122,7 @@ def historique():
         if content_to_parse:
             novos=parse_file_pro(content_to_parse, jeu_import)
             for j,h,je,ht,bs,dt,num in novos: insert_tirage(j,h,je,ht,bs,dt,num)
-            msg=f'<div style="background:#25D366;color:#fff;padding:12px;border-radius:10px;font-weight:bold">✅ {len(novos)} tirages importés en {jeu_import} - Trié par N° de tirage</div>'
-        else:
-            msg='<div style="background:#ff3333;color:#fff;padding:10px;border-radius:10px">❌ Colle du texte ou choisis un fichier</div>'
+            msg=f'<div style="background:#25D366;color:#fff;padding:12px;border-radius:10px;font-weight:bold">✅ {len(novos)} tirages importés - Que tes vrais numéros!</div>'
 
     rows=fetch_all(jeu_filtre)
     total_rows = len(rows)
@@ -142,30 +133,24 @@ def historique():
         filtres+=f'<a href="/historique?jeu={j}" style="background:{"gold" if active else "#222"};color:{"#111" if active else "#fff"};padding:6px 10px;border-radius:20px;text-decoration:none;font-size:12px;font-weight:bold;border:1px solid gold">{j} ({cnt})</a>'
     filtres+='</div>'
     def format_date(d):
+        if not d or d.strip()=="": return "ANCIEN TIRAGE"
         try:
             y,m,dd=d.split('-'); return f"{dd}/{m}/{y}"
-        except: return d
-    cards=''.join([f'<div style="background:#151515;padding:10px;margin:5px 0;border-radius:8px;border-left:4px solid gold"><b>{format_date(r[6])} - {r[3]} #{r[7]}</b><br>WIN:{r[4]} | MACHINE:{r[5]}<br><small style="color:#888">Ajouté le {r[8]}</small></div>' for r in rows[:400]]) or '<div style="text-align:center;color:#888;margin:20px">Base vide</div>'
+        except: return d if d else "ANCIEN TIRAGE"
+    
+    cards=''.join([f'<div style="background:#151515;padding:10px;margin:5px 0;border-radius:8px;border-left:4px solid gold"><b>{format_date(r[6])} - {r[3]} #{r[7]}</b><br>WIN:{r[4]} | MACHINE:{r[5]}<br><small style="color:#888">Ajouté le {r[8]}</small></div>' for r in rows[:500]]) or '<div style="text-align:center;color:#888;margin:20px">Base vide</div>'
     
     return f'''<html><body style="background:#000;color:#fff;font-family:Arial;padding:8px">
     <a href="/" style="color:gold">⬅ ACCUEIL</a>
-    <h3 style="color:gold;text-align:center;border:1px solid gold;padding:8px;border-radius:10px">HISTORIQUE - {jeu_filtre} ({total_rows})</h3>
+    <h3 style="color:gold;text-align:center;border:1px solid gold;padding:8px;border-radius:10px">HISTORIQUE - {jeu_filtre} ({total_rows}) - QUE TES NUMÉROS</h3>
     <div style="background:#111;border:2px solid gold;padding:12px;border-radius:12px">{msg}
         <form method="post" enctype="multipart/form-data">
-            <label style="color:gold;font-weight:bold;font-size:13px">JEU:</label>
             <select name="jeu_import" style="width:100%;padding:10px;border-radius:6px;margin-bottom:8px">{"".join([f"<option value={j}>{j}</option>" for j in JEUX_LISTE])}</select>
-            
-            <label style="color:#25D366;font-weight:bold;font-size:14px">METHODE 1 - COLLER TEXTE (RECOMMANDÉ):</label>
-            <textarea name="pasted_text" placeholder="Ex: 450 08/12 05-12-23-45-67" style="width:100%;height:120px;background:#222;color:#fff;border:1px solid #25D366;border-radius:8px;padding:8px;margin-top:4px"></textarea>
-            <button style="width:100%;background:#25D366;color:#fff;padding:12px;border:none;border-radius:8px;font-weight:bold;margin-top:6px">🚀 IMPORTER LE TEXTE COLLÉ</button>
-            
-            <div style="text-align:center;color:#666;margin:10px 0">--- OU ---</div>
-            
-            <label style="color:#888;font-size:12px">METHODE 2 - FICHIER:</label>
-            <input type="file" name="file" accept=".txt,.csv" style="width:100%;padding:8px;background:#222;color:#fff;border-radius:6px;margin-top:4px">
-            <button style="width:100%;background:#333;color:#fff;padding:8px;border:none;border-radius:8px;margin-top:4px">Importer fichier</button>
+            <textarea name="pasted_text" placeholder="Colle ici..." style="width:100%;height:120px;background:#222;color:#fff;border:1px solid #25D366;border-radius:8px;padding:8px;margin-top:4px"></textarea>
+            <button style="width:100%;background:#25D366;color:#fff;padding:12px;border:none;border-radius:8px;font-weight:bold;margin-top:6px">🚀 IMPORTER</button>
+            <input type="file" name="file" accept=".txt,.csv" style="width:100%;padding:8px;background:#222;color:#fff;border-radius:6px;margin-top:8px">
         </form>
-        <a href="/reset" onclick="return confirm('⚠️ Effacer TOUT ?')" style="display:block;background:#ff3333;color:#fff;padding:10px;border-radius:8px;text-align:center;text-decoration:none;margin-top:12px;font-weight:bold">🗑️ EFFACER TOUT L HISTORIQUE</a>
+        <a href="/reset" onclick="return confirm('Effacer tout?')" style="display:block;background:#ff3333;color:#fff;padding:10px;border-radius:8px;text-align:center;text-decoration:none;margin-top:12px;font-weight:bold">🗑️ EFFACER</a>
     </div>{filtres}{cards}</body></html>'''
 
 @app.route('/analyse')
@@ -194,22 +179,7 @@ def analyse():
         random.seed(len(rows)); ticket4 = random.sample([n for n,c in chauds[:15]], 5)
     else:
         ticket1=ticket2=ticket3=ticket4=["01","02","03","04","05"]
-    tickets_html=f'''
-    <div style="margin-top:15px">
-        <div style="background:linear-gradient(45deg,#FFD700,#FFA500);color:#111;padding:14px;border-radius:12px;margin:10px 0;font-weight:bold;border:2px solid #fff">
-            🎯 TICKET 1 - CHAUDS<br><span style="font-size:24px;letter-spacing:2px">{' - '.join(ticket1)}</span>
-        </div>
-        <div style="background:#111;border:2px solid gold;color:gold;padding:14px;border-radius:12px;margin:10px 0;font-weight:bold">
-            🔥 TICKET 2 - MIX<br><span style="font-size:24px;color:#fff">{' - '.join(ticket2)}</span>
-        </div>
-        <div style="background:#222;border:2px solid #ff6b6b;color:#ff6b6b;padding:14px;border-radius:12px;margin:10px 0;font-weight:bold">
-            ⏰ TICKET 3 - RETARD<br><span style="font-size:24px;color:#fff">{' - '.join(ticket3)}</span>
-        </div>
-        <div style="background:#0a3d0a;border:2px solid #25D366;color:#25D366;padding:14px;border-radius:12px;margin:10px 0;font-weight:bold">
-            🎲 TICKET 4 - ALEA<br><span style="font-size:24px;color:#fff">{' - '.join(ticket4)}</span>
-        </div>
-    </div>
-    '''
+    tickets_html=f'<div style="margin-top:15px"><div style="background:gold;color:#111;padding:14px;border-radius:12px;margin:10px 0;font-weight:bold">🎯 TICKET 1 - CHAUDS<br><span style="font-size:22px">{chr(32).join(ticket1).replace(chr(32), " - ")}</span></div><div style="background:#111;border:2px solid gold;color:gold;padding:14px;border-radius:12px;margin:10px 0;font-weight:bold">🔥 TICKET 2 - MIX<br><span style="font-size:22px;color:#fff">{" - ".join(ticket2)}</span></div><div style="background:#222;border:2px solid #ff6b6b;color:#ff6b6b;padding:14px;border-radius:12px;margin:10px 0;font-weight:bold">⏰ TICKET 3 - RETARD<br><span style="font-size:22px;color:#fff">{" - ".join(ticket3)}</span></div><div style="background:#0a3d0a;border:2px solid #25D366;color:#25D366;padding:14px;border-radius:12px;margin:10px 0;font-weight:bold">🎲 TICKET 4 - ALEA<br><span style="font-size:22px;color:#fff">{" - ".join(ticket4)}</span></div></div>'
     return f'<html><body style="background:#000;color:#fff;font-family:Arial;padding:8px"><a href="/" style="color:gold">⬅ ACCUEIL</a><h3 style="color:gold;text-align:center;border:1px solid gold;padding:8px;border-radius:10px">ANALYSE - {jeu_filtre} - {len(rows)} tirages</h3>{filtres}<div style="background:#141414;padding:12px;border-radius:12px"><div><b>Chauds:</b><br>{chaud_html}</div><div style="margin-top:12px"><b>Retard:</b><br>{retard_html}</div>{tickets_html}</div></body></html>'
 
 @app.route('/reset')
