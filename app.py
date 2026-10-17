@@ -7,7 +7,7 @@ import os, re, io
 app = Flask(__name__)
 DB = "loto.db"
 JEUX_LISTE = ["MATINALE","DIAMANT","GOLD","CASH","BOOM","BENZ","PRESTIGE","MILLION","SUPER","KADOO","KING","SAM","BINGO","DETENTE"]
-JEUX_10_BOULES = ["MATINALE","DETENTE"] # SEULEMENT CEUX-LA = 10 BOULES
+JEUX_10_BOULES = ["MATINALE","DETENTE"]
 
 def get_conn(): return sqlite3.connect(DB)
 def init_db():
@@ -31,60 +31,60 @@ def fetch_all(jeu=None):
         c.execute('SELECT * FROM tirages ORDER BY CAST(numero AS INTEGER) DESC, id DESC')
     r=c.fetchall();conn.close();return r
 
+# --- PARSEUR V18.2 CORRIGÉ POUR TON FORMAT ---
 def parse_file_pro(content, jeu_force):
     res=[]
     for line in content.splitlines():
         line=line.strip()
         if not line: continue
-        date_str=""; numero=None; line_sans_date=line
-        m=re.search(r'(\d{1,4})\s+(\d{2})/(\d{2})',line)
-        if m:
-            numero=m.group(1); dd=m.group(2); mm=m.group(3)
-            yy="2024" if mm=="12" else "2025"; date_str=f"{yy}-{mm}-{dd}"
-            line_sans_date=line.replace(m.group(0),' ')
+        m = re.search(r'(\d{2,4})\s+(\d{1,2})/(\d{1,2})', line)
+        if not m: continue
+        numero = m.group(1)
+        dd = m.group(2).zfill(2); mm = m.group(3).zfill(2)
+        yy = "2024" if mm=="12" else "2025"
+        date_str = f"{yy}-{mm}-{dd}"
+        if '/' not in line: continue
+        parts = line.split('/')
+        win_part = parts[0]
+        machine_part = parts[1] if len(parts)>1 else ""
+        # Extraire les numéros après WIN:
+        win_match = re.search(r'WIN:\s*([0-9\-\s]+)', win_part, re.IGNORECASE)
+        if win_match:
+            win_nums = re.findall(r'\d{1,2}', win_match.group(1))
         else:
-            m1=re.search(r'(\d{4}-\d{2}-\d{2})',line)
-            if m1: date_str=m1.group(1); line_sans_date=line.replace(m1.group(1),' ')
-        if not numero:
-            nums_tmp=re.findall(r'\b\d{2,4}\b',line)
-            if nums_tmp: numero=nums_tmp[-1]
-            else: numero=str(len(res)+1)
-        nums=re.findall(r'\d+',line_sans_date)
-        clean=[n.zfill(2) for n in nums if n.isdigit() and 1<=int(n)<=90]
-        if len(clean)>=5:
-            haut='-'.join(clean[:5])
-            # REGLE V18: SEULEMENT MATINALE ET DETENTE ONT MACHINE
+            win_nums = re.findall(r'\d{1,2}', win_part)
+            win_nums = [n for n in win_nums if 1<=int(n)<=90][-5:]
+        machine_nums = re.findall(r'\d{1,2}', machine_part)
+        machine_nums = [n for n in machine_nums if 1<=int(n)<=90][:5]
+        win_nums = [n.zfill(2) for n in win_nums if 1<=int(n)<=90][:5]
+        machine_nums = [n.zfill(2) for n in machine_nums if 1<=int(n)<=90][:5]
+        if len(win_nums)>=5:
+            haut = '-'.join(win_nums[:5])
             if jeu_force in JEUX_10_BOULES:
-                bas='-'.join(clean[5:10]) if len(clean)>=10 else ''
+                bas = '-'.join(machine_nums[:5]) if len(machine_nums)>=5 else ''
             else:
-                bas='' # 5 BOULES SEULEMENT, PAS DE MACHINE
+                bas = ''
             res.append(('LUNDI',"09:00",jeu_force,haut,bas,date_str,numero))
     return res
 
-# --- PWA APPLICATION ---
+# --- PWA ---
 @app.route('/manifest.json')
 def manifest():
     return jsonify({
-        "name": "LOTO IA V18",
-        "short_name": "LOTO V18",
+        "name": "LOTO IA V18.2",
+        "short_name": "LOTO V18.2",
         "start_url": "/",
         "display": "standalone",
         "background_color": "#000000",
         "theme_color": "#FFD700",
-        "description": "LOTO IA - Matinale 10 boules, Autres 5 boules",
         "icons": [{"src": "https://cdn-icons-png.flaticon.com/512/744/744465.png","sizes": "512x512","type": "image/png"}]
     })
 
 @app.route('/sw.js')
 def sw():
-    js = """
-    const CACHE='loto-v18';
-    self.addEventListener('install', e=>{self.skipWaiting();});
-    self.addEventListener('fetch', e=>{e.respondWith(fetch(e.request).catch(()=>caches.match(e.request)))});
-    """
+    js = "self.addEventListener('install', e=>{self.skipWaiting();}); self.addEventListener('fetch', e=>{e.respondWith(fetch(e.request).catch(()=>caches.match(e.request)))});"
     return (js, 200, {'Content-Type': 'application/javascript'})
 
-# --- PAGES ---
 @app.route('/')
 def home():
     total=len(fetch_all())
@@ -95,16 +95,19 @@ def home():
     <style>body{{background:#0a0a0a;color:#fff;font-family:Arial;padding:12px}}.btn{{display:block;background:#1a1a1a;border:1px solid gold;color:gold;padding:16px;margin:10px 0;border-radius:12px;text-align:center;text-decoration:none;font-weight:bold}}</style>
     <script>if('serviceWorker' in navigator){{navigator.serviceWorker.register('/sw.js')}}</script>
     </head><body>
-    <div style="background:gold;color:#111;padding:14px;border-radius:12px;text-align:center;font-weight:bold">LOTO V18 APPLICATION<br>{total} tirages<br><small>MATINALE/DETENTE=10b | AUTRES=5b</small></div>
-    <div style="background:#111;border:1px solid #25D366;padding:10px;border-radius:8px;margin:10px 0;text-align:center;font-size:12px">📲 Pour installer: Chrome -> 3 points -> Ajouter à l'écran d'accueil</div>
+    <div style="background:gold;color:#111;padding:14px;border-radius:12px;text-align:center;font-weight:bold">LOTO V18.2 - CORRIGÉ<br>{total} tirages<br><small>MATINALE/DETENTE=10b | AUTRES=5b</small></div>
+    <div style="background:#111;border:1px solid #25D366;padding:10px;border-radius:8px;margin:10px 0;text-align:center;font-size:12px">📲 Chrome -> 3 points -> Ajouter à l'écran d'accueil</div>
     <a class="btn" href="/saisir">🎰 SAISIR TIRAGE</a><a class="btn" href="/historique">📜 HISTORIQUE</a><a class="btn" href="/analyse">🧠 ANALYSE IA - TICKET 718</a>
     </body></html>''')
 
 @app.route('/historique', methods=['GET','POST'])
 def historique():
-    jeu_filtre=request.args.get('jeu','TOUS'); msg=''
+    jeu_filtre=request.args.get('jeu','TOUS')
+    ok=request.args.get('ok')
+    msg=f'<div style="background:#25D366;color:#fff;padding:12px;border-radius:10px;font-weight:bold">✅ {ok} importés en {jeu_filtre} - 10b!</div>' if ok else ''
     if request.method=='POST':
-        jeu_import=request.form.get('jeu_import','MATINALE'); content_to_parse=None
+        jeu_import=request.form.get('jeu_import','MATINALE')
+        content_to_parse=None
         pasted=request.form.get('pasted_text','').strip()
         if pasted: content_to_parse=pasted
         else:
@@ -113,7 +116,7 @@ def historique():
         if content_to_parse:
             novos=parse_file_pro(content_to_parse, jeu_import)
             for j,h,je,ht,bs,dt,num in novos: insert_tirage(j,h,je,ht,bs,dt,num)
-            msg=f'<div style="background:#25D366;color:#fff;padding:12px;border-radius:10px;font-weight:bold">✅ {len(novos)} importés en {jeu_import}!</div>'
+            return redirect(f'/historique?jeu={jeu_import}&ok={len(novos)}')
     rows=fetch_all(jeu_filtre); total_rows=len(rows)
     def format_date(d):
         if not d or d.strip()=="": return "ANCIEN"
@@ -125,8 +128,8 @@ def historique():
         active=jeu_filtre==j
         filtres+=f'<a href="/historique?jeu={j}" style="background:{"gold" if active else "#222"};color:{"#111" if active else "#fff"};padding:6px 10px;border-radius:20px;text-decoration:none;font-size:11px;font-weight:bold;border:1px solid gold">{j} ({cnt})</a>'
     filtres+='</div>'
-    cards=''.join([f'<div style="background:#151515;padding:8px;margin:4px 0;border-radius:8px;border-left:4px solid {"#25D366" if r[3] in JEUX_10_BOULES else "gold"}"><b>{format_date(r[6])} {r[3]} #{r[7]}</b> {"WIN:"+r[4]+" | MACHINE:"+r[5] if r[5] else "NUM:"+r[4]+" (5 boules)"}<br><small>{"10 BOULES" if r[5] else "5 BOULES"}</small></div>' for r in rows[:500]]) or '<div style="color:#888;text-align:center">Base vide</div>'
-    return f'<html><head><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="manifest" href="/manifest.json"></head><body style="background:#000;color:#fff;font-family:Arial;padding:8px"><a href="/" style="color:gold">⬅ ACCUEIL</a><h3 style="color:gold;text-align:center">HISTORIQUE - {jeu_filtre} ({total_rows})</h3><div style="background:#111;border:2px solid gold;padding:10px;border-radius:12px">{msg}<form method="post" enctype="multipart/form-data"><select name="jeu_import" style="width:100%;padding:8px;border-radius:6px;margin-bottom:6px">{"".join([f"<option>{j} - {10 if j in JEUX_10_BOULES else 5}b</option>" for j in JEUX_LISTE])}</select><textarea name="pasted_text" style="width:100%;height:100px;background:#222;color:#fff;border:1px solid #25D366;border-radius:8px;padding:6px"></textarea><button style="width:100%;background:#25D366;color:#fff;padding:10px;border:none;border-radius:8px;font-weight:bold;margin-top:4px">🚀 IMPORTER</button></form></div>{filtres}{cards}</body></html>'
+    cards=''.join([f'<div style="background:#151515;padding:8px;margin:4px 0;border-radius:8px;border-left:4px solid {"#25D366" if r[5] else "gold"}"><b>{format_date(r[6])} {r[3]} #{r[7]}</b><br>{"WIN:"+r[4]+" | MACHINE:"+r[5]+" ✅ 10 BOULES" if r[5] else "NUM:"+r[4]+" (5 BOULES)"}<br><small>{"10 BOULES OK" if r[5] else "5 BOULES"}</small></div>' for r in rows[:500]]) or '<div style="color:#888;text-align:center">Base vide - Importe ton fichier</div>'
+    return f'<html><head><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="manifest" href="/manifest.json"></head><body style="background:#000;color:#fff;font-family:Arial;padding:8px"><a href="/" style="color:gold">⬅ ACCUEIL</a><h3 style="color:gold;text-align:center">HISTORIQUE - {jeu_filtre} ({total_rows})</h3><div style="background:#111;border:2px solid gold;padding:10px;border-radius:12px">{msg}<form method="post" enctype="multipart/form-data"><select name="jeu_import" style="width:100%;padding:8px;border-radius:6px;margin-bottom:6px">{"".join([f"<option value={j} {'selected' if j=='MATINALE' else ''}>{j} - {10 if j in JEUX_10_BOULES else 5}b</option>" for j in JEUX_LISTE])}</select><textarea name="pasted_text" placeholder="Colle ici: 703 01/10 WIN: 18-13-79-01-32 / 02-46-24-72-41" style="width:100%;height:120px;background:#222;color:#fff;border:1px solid #25D366;border-radius:8px;padding:6px"></textarea><button style="width:100%;background:#25D366;color:#fff;padding:10px;border:none;border-radius:8px;font-weight:bold;margin-top:4px">🚀 IMPORTER V18.2</button></form></div>{filtres}{cards}</body></html>'
 
 @app.route('/analyse')
 def analyse():
@@ -165,16 +168,10 @@ def analyse():
     ticket_annonce=ticket_annonce[:5]
     ticket_paires=[top_paires[0][0][0], top_paires[0][0][1], top_paires[1][0][0], top_paires[1][0][1], chauds[0][0]] if top_paires else ticket1
     ticket_retard=retard[:5]
-    filtres='<div style="display:flex;flex-wrap:wrap;gap:4px;margin:8px 0">'
-    for j in JEUX_LISTE:
-        active=jeu_filtre==j
-        filtres+=f'<a href="/analyse?jeu={j}" style="background:{"gold" if active else "#222"};color:{"#111" if active else "#fff"};padding:5px 8px;border-radius:15px;text-decoration:none;font-size:10px;font-weight:bold;border:1px solid gold">{j} ({len(fetch_all(j))})</a>'
-    filtres+='</div>'
     type_jeu = "10 BOULES (WIN+MACHINE)" if jeu_filtre in JEUX_10_BOULES else "5 BOULES"
     return f'''<html><head><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="manifest" href="/manifest.json"></head><body style="background:#000;color:#fff;font-family:Arial;padding:6px">
     <a href="/" style="color:gold">⬅ ACCUEIL</a>
-    <h3 style="color:gold;text-align:center;border:1px solid gold;padding:6px;border-radius:8px">🧠 IA - {jeu_filtre} - {type_jeu} - {len(rows)} tirages</h3>
-    {filtres}
+    <h3 style="color:gold;text-align:center;border:1px solid gold;padding:6px;border-radius:8px">🧠 IA V18.2 - {jeu_filtre} - {type_jeu} - {len(rows)} tirages</h3>
     <div style="background:#141414;padding:10px;border-radius:10px">
         <div><b>🔥 Chauds:</b><br>{chaud_html}</div>
         <div style="margin-top:8px"><b>❄️ Retard:</b><br>{retard_html}</div>
@@ -234,8 +231,8 @@ def saisir():
     }}
     if('serviceWorker' in navigator){{navigator.serviceWorker.register('/sw.js')}}
     </script></head><body>
-    <h3 style="color:gold;text-align:center">🧠 SAISIR V18 APPLICATION</h3>
-    <div id="infoJeu" style="background:gold;color:#111;padding:8px;border-radius:8px;text-align:center;font-weight:bold;font-size:12px;margin-bottom:8px">BENZ = 5 BOULES SEULEMENT (PAS DE MACHINE)</div>
+    <h3 style="color:gold;text-align:center">🧠 SAISIR V18.2</h3>
+    <div id="infoJeu" style="background:gold;color:#111;padding:8px;border-radius:8px;text-align:center;font-weight:bold;font-size:12px;margin-bottom:8px">BENZ = 5 BOULES SEULEMENT</div>
     <label style="color:#25D366">N° TIRAGE</label><input id="numero_out" type="number" min="1" max="2000" value="718" required>
     <label>DATE</label><input type="date" id="date_out" value="{today}" required>
     <label>JEU</label>
@@ -257,12 +254,12 @@ def saisir():
     </select>
     <form id="mainForm" method="POST">
     <input type="hidden" name="jour" value="LUNDI"><input type="hidden" name="heure" value="09:00"><input type="hidden" name="jeu" id="jeu_input" value="BENZ"><input type="hidden" name="numero" id="numero_input"><input type="hidden" name="date" id="date_input">
-    <div style="margin:10px 0"><label id="labelWin">NUMÉROS (5) - BENZ = 5 BOULES SEULEMENT</label><div class="cage"><input name="h1" placeholder="62" required><input name="h2" placeholder="55" required><input name="h3" placeholder="33" required><input name="h4" placeholder="51" required><input name="h5" placeholder="81" required></div></div>
+    <div style="margin:10px 0"><label id="labelWin">NUMÉROS (5) - BENZ = 5 BOULES</label><div class="cage"><input name="h1" placeholder="62" required><input name="h2" placeholder="55" required><input name="h3" placeholder="33" required><input name="h4" placeholder="51" required><input name="h5" placeholder="81" required></div></div>
     <div id="machineDiv" class="hidden"><label style="color:#25D366">MACHINE (5) - UNIQUEMENT MATINALE/DETENTE</label><div class="cage"><input name="b1" placeholder="38"><input name="b2" placeholder="61"><input name="b3" placeholder="52"><input name="b4" placeholder="26"><input name="b5" placeholder="14"></div></div>
-    <button style="width:100%;background:gold;color:#111;padding:14px;border:none;border-radius:10px;font-weight:bold;margin-top:12px">🧠 ENREGISTRER V18</button>
+    <button style="width:100%;background:gold;color:#111;padding:14px;border:none;border-radius:10px;font-weight:bold;margin-top:12px">🧠 ENREGISTRER V18.2</button>
     </form>
     <script>document.getElementById('mainForm').addEventListener('submit', function(){{document.getElementById('numero_input').value=document.getElementById('numero_out').value;document.getElementById('date_input').value=document.getElementById('date_out').value;}}); updateForm();</script>
-    <a href="/" style="color:gold;display:block;text-align:center;margin-top:12px">⬅ Retour Accueil</a></body></html>"""
+    <a href="/" style="color:gold;display:block;text-align:center;margin-top:12px">⬅ Retour</a></body></html>"""
 
 if __name__=='__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get("PORT",10000)))
