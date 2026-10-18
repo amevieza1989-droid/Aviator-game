@@ -1,10 +1,10 @@
-from flask import Flask, request, redirect
-import sqlite3, os, re
+from flask import Flask, request, redirect, send_file
+import sqlite3, os, re, io
 from collections import Counter
 from datetime import datetime
 
 app = Flask(__name__)
-DB = "loto.db"
+DB = "/data/loto.db" if os.path.exists("/data") else "loto.db"
 JEUX_LISTE = ["MATINALE","DIAMANT","GOLD","CASH","BOOM","BENZ","PRESTIGE","MILLION","SUPER","KADOO","KING","SAM","BINGO","DETENTE"]
 JEUX_10 = ["MATINALE","DETENTE"]
 
@@ -14,103 +14,100 @@ def init_db():
     c.execute('CREATE TABLE IF NOT EXISTS tirages (id INTEGER PRIMARY KEY, jour TEXT, heure TEXT, jeu TEXT, haut TEXT, bas TEXT, date TEXT, numero TEXT, created TEXT)')
     conn.commit();conn.close()
 init_db()
+
 def insert_tirage(j,h,jeu,haut,bas,date,numero):
     conn=get_conn();c=conn.cursor()
     c.execute('INSERT INTO tirages (jour,heure,jeu,haut,bas,date,numero,created) VALUES (?,?,?,?,?,?,?,?)',(j,h,jeu,haut,bas,date,numero,datetime.now().strftime('%d/%m/%Y')))
     conn.commit();conn.close()
+
 def fetch_all(jeu=None):
     conn=get_conn();c=conn.cursor()
-    c.execute('SELECT * FROM tirages WHERE jeu=? ORDER BY CAST(numero AS INTEGER) DESC' if jeu and jeu!='TOUS' else 'SELECT * FROM tirages ORDER BY CAST(numero AS INTEGER) DESC', (jeu,) if jeu and jeu!='TOUS' else ())
-    r=c.fetchall();conn.close();return r
+    try:
+        if jeu and jeu!='TOUS': c.execute('SELECT * FROM tirages WHERE jeu=? ORDER BY CAST(numero AS INTEGER) DESC',(jeu,))
+        else: c.execute('SELECT * FROM tirages ORDER BY CAST(numero AS INTEGER) DESC')
+        r=c.fetchall()
+    except: r=[]
+    conn.close();return r
+
 def format_date(d):
     if not d: return ""
     try: y,m,dd=d.split('-'); return f"{dd}/{m}/{y}"
     except: return d
 
 def parse_matinale_cori(content, jeu_force):
-    # 1. Recolle les lignes cassées qui finissent par "/"
     raw_lines=content.splitlines()
-    merged=[]
-    i=0
+    merged=[]; i=0
     while i < len(raw_lines):
         l=raw_lines[i].strip()
-        if not l: 
-            i+=1; continue
+        if not l: i+=1; continue
         if l.endswith('/') and i+1 < len(raw_lines):
-            merged.append(l + ' ' + raw_lines[i+1].strip())
-            i+=2
+            merged.append(l+' '+raw_lines[i+1].strip()); i+=2
         else:
-            merged.append(l)
-            i+=1
-
-    # 2. Parse chaque ligne type "450 08/12 WIN: 42-44-... / 54-47-..."
-    res=[]
-    current_year=2024  # ton fichier commence en 12/2024
-    last_month=12
+            merged.append(l); i+=1
+    res=[]; current_year=2024; last_month=12
     for line in merged:
         if 'WIN:' not in line: continue
-        # Nettoie BOM
         line=line.replace('\ufeff','').strip()
         tokens=line.split()
-        if not tokens: continue
-        numero=tokens[0].strip()
-        if not numero.isdigit(): continue
-
-        # Date JJ/MM
+        if not tokens or not tokens[0].isdigit(): continue
+        numero=tokens[0]
         m_date=re.search(r'(\d{1,2})/(\d{1,2})', line)
         if not m_date: continue
         dd=int(m_date.group(1)); mm=int(m_date.group(2))
-        # Détection changement d'année: 12 -> 01
-        if mm < last_month and last_month==12:
-            current_year+=1
+        if mm < last_month and last_month==12: current_year+=1
         last_month=mm
         date_str=f"{current_year}-{str(mm).zfill(2)}-{str(dd).zfill(2)}"
-
-        # WIN / MACHINE
         try:
             after_win=line.split('WIN:')[1]
-            if '/' in after_win:
-                win_part, mach_part=after_win.split('/',1)
-            else:
-                win_part=after_win; mach_part=""
-            # extrait les 5 numéros
+            win_part, mach_part= (after_win.split('/',1) if '/' in after_win else (after_win,""))
             win_nums=[x.zfill(2) for x in re.findall(r'\d{1,2}', win_part) if 1<=int(x)<=90][:5]
             mach_nums=[x.zfill(2) for x in re.findall(r'\d{1,2}', mach_part) if 1<=int(x)<=90][:5]
             if len(win_nums)<5: continue
-            haut='-'.join(win_nums)
-            bas='-'.join(mach_nums) if len(mach_nums)==5 else ""
+            haut='-'.join(win_nums); bas='-'.join(mach_nums) if len(mach_nums)==5 else ""
             res.append(('LUNDI','09:00',jeu_force,haut,bas,date_str,numero))
-        except:
-            continue
+        except: continue
     return res
 
 def parse_file_pro(content, jeu_force):
-    # Si c'est le format MATINALE CORI, utilise parser spécial
     if 'WIN:' in content and '/' in content:
-        special=parse_matinale_cori(content, jeu_force)
-        if len(special)>10:  # si ça marche, on garde
-            return special
-    # Fallback générique
+        s=parse_matinale_cori(content, jeu_force)
+        if len(s)>10: return s
     res=[]
     for line in content.splitlines():
         if not line.strip(): continue
         nums=[x.zfill(2) for x in re.findall(r'\b\d{1,2}\b', line) if x.isdigit() and 1<=int(x)<=90]
         if len(nums)<5: continue
-        m_num=re.search(r'#\s*(\d+)', line)
-        numero=m_num.group(1) if m_num else ""
+        m_num=re.search(r'#\s*(\d+)', line); numero=m_num.group(1) if m_num else ""
         m_date=re.search(r'(\d{1,2})[/-](\d{1,2})[/-](20\d{2})', line)
         date_str=f"{m_date.group(3)}-{m_date.group(2).zfill(2)}-{m_date.group(1).zfill(2)}" if m_date else ""
         haut='-'.join(nums[:5]); bas='-'.join(nums[5:10]) if len(nums)>=10 else ""
         res.append(('LUNDI','09:00',jeu_force,haut,bas,date_str,numero))
     return res
 
+# AUTO-IMPORT AU DEMARRAGE SI BASE VIDE ET FICHIER EXISTE
+def auto_seed():
+    if len(fetch_all())>0: return
+    for fname in ["MATINAL_CORI.txt","MATINAL_CORI.TXT","matinal_cori.txt"]:
+        if os.path.exists(fname):
+            try:
+                with open(fname,'r',encoding='utf-8',errors='ignore') as f: content=f.read()
+                data=parse_matinale_cori(content,"MATINALE")
+                for j,h,je,ht,bs,dt,num in data: insert_tirage(j,h,je,ht,bs,dt,num)
+                print(f"AUTO-SEED {len(data)} depuis {fname}")
+                break
+            except Exception as e:
+                print(f"auto-seed err {e}")
+auto_seed()
+
 @app.route('/')
 def home():
     total=len(fetch_all())
+    persist="🟢 Disque /data actif - Base sauvegardée!" if os.path.exists("/data") else "🟡 Pas de disque /data - Ajoute un Disk sur Render"
     return f'''<html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="background:#000;color:#fff;font-family:Arial;padding:12px">
-    <div style="background:gold;color:#111;padding:14px;border-radius:12px;text-align:center;font-weight:bold">V21 FORMAT CORI - {total} tirages</div>
-    <a href="/historique" style="display:block;background:#222;border:1px solid gold;color:gold;padding:16px;margin:10px 0;border-radius:12px;text-align:center;text-decoration:none;font-weight:bold">📜 HISTORIQUE VRAIES DATES</a>
+    <div style="background:gold;color:#111;padding:14px;border-radius:12px;text-align:center;font-weight:bold">V22 PERSISTANT - {total} tirages<br><small>{persist}</small></div>
+    <a href="/historique" style="display:block;background:#222;border:1px solid gold;color:gold;padding:16px;margin:10px 0;border-radius:12px;text-align:center;text-decoration:none;font-weight:bold">📜 HISTORIQUE</a>
     <a href="/saisir" style="display:block;background:gold;color:#111;padding:16px;margin:10px 0;border-radius:12px;text-align:center;text-decoration:none;font-weight:bold">🎰 SAISIR - 14 JEUX</a>
+    <a href="/export" style="display:block;background:#25D366;color:#fff;padding:16px;margin:10px 0;border-radius:12px;text-align:center;text-decoration:none;font-weight:bold">💾 SAUVEGARDER / EXPORTER</a>
     <a href="/analyse?jeu=MATINALE" style="display:block;background:#222;border:1px solid #25D366;color:#25D366;padding:16px;margin:10px 0;border-radius:12px;text-align:center;text-decoration:none;font-weight:bold">🧠 ANALYSE</a>
     </body></html>'''
 
@@ -138,15 +135,60 @@ def historique():
         titre=f"{date_affiche} - {r[3]} #{num_affiche}" if date_affiche else f"{r[3]} #{num_affiche}"
         detail=f"WIN:{r[4]} | MACHINE:{r[5]}" if r[5] else f"WIN:{r[4]}"
         cards+=f'<div style="background:#151515;padding:12px;margin:6px 0;border-radius:10px;border-left:5px solid gold"><b>📅 {titre}</b><br>{detail}</div>'
-    if not cards: cards='<div style="color:#888;text-align:center;padding:30px">Base vide - Importe MATINAL_CORI.txt</div>'
+    if not cards: cards='<div style="color:#888;text-align:center;padding:30px">Base vide - Ajoute MATINAL_CORI.txt à ton GitHub et redéploie, auto-import!</div>'
     return f'''<html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="background:#000;color:#fff;font-family:Arial;padding:8px">
     <a href="/" style="color:gold">⬅ ACCUEIL</a><h3 style="color:gold;text-align:center">{jeu_filtre} ({len(rows)})</h3>
     <div style="background:#111;border:2px solid gold;padding:14px;border-radius:12px">{msg}
     <form method="post" enctype="multipart/form-data">
     <select name="jeu_import" style="width:100%;padding:12px;background:#222;color:#fff;border-radius:8px">{options}</select>
     <input type="file" name="fichier" style="width:100%;padding:12px;background:#222;color:#fff;border:2px dashed #25D366;border-radius:8px;margin:8px 0">
-    <button style="width:100%;background:#25D366;color:#fff;padding:14px;border:none;border-radius:8px;font-weight:bold">📁 IMPORTER V21</button>
+    <button style="width:100%;background:#25D366;color:#fff;padding:14px;border:none;border-radius:8px;font-weight:bold">📁 IMPORTER V22</button>
     </form></div><div style="margin:12px 0">{filtres}</div>{cards}</body></html>'''
+
+@app.route('/export')
+def export_data():
+    rows=fetch_all("TOUS")
+    # Format MATINAL_CORI
+    out_lines=[]
+    for r in rows:
+        # r = id,jour,heure,jeu,haut,bas,date,numero
+        date_obj=r[6]
+        if date_obj:
+            try: y,m,d=date_obj.split('-'); date_show=f"{d}/{m}"
+            except: date_show=""
+        else: date_show=""
+        if r[5]: out_lines.append(f"{r[7]} {date_show} WIN: {r[4]} / {r[5]}")
+        else: out_lines.append(f"{r[7]} {date_show} WIN: {r[4]}")
+    txt="\n".join(out_lines)
+    return f'''<html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="background:#000;color:#fff;font-family:Arial;padding:12px">
+    <a href="/" style="color:gold">⬅ ACCUEIL</a><h3 style="color:gold">💾 SAUVEGARDE - {len(rows)} tirages</h3>
+    <a href="/export/txt" style="display:block;background:gold;color:#111;padding:16px;margin:10px 0;border-radius:12px;text-align:center;text-decoration:none;font-weight:bold">📄 Télécharger MATINAL_CORI.txt (backup)</a>
+    <a href="/export/csv" style="display:block;background:#222;border:1px solid gold;color:gold;padding:16px;margin:10px 0;border-radius:12px;text-align:center;text-decoration:none;font-weight:bold">📊 Télécharger CSV complet</a>
+    <textarea style="width:100%;height:300px;background:#111;color:#fff;padding:10px">{txt[:10000]}</textarea>
+    </body></html>'''
+
+@app.route('/export/txt')
+def export_txt():
+    rows=fetch_all("TOUS")
+    out=[]
+    for r in rows:
+        if r[6]:
+            try: y,m,d=r[6].split('-'); ds=f"{d}/{m}"
+            except: ds=""
+        else: ds=""
+        out.append(f"{r[7]} {ds} WIN: {r[4]} / {r[5]}" if r[5] else f"{r[7]} {ds} WIN: {r[4]}")
+    txt="\n".join(out)
+    buf=io.BytesIO(txt.encode('utf-8')); buf.seek(0)
+    return send_file(buf, as_attachment=True, download_name="MATINAL_CORI_BACKUP.txt", mimetype="text/plain")
+
+@app.route('/export/csv')
+def export_csv():
+    rows=fetch_all("TOUS")
+    csv="numero,date,jeu,WIN,MACHINE\n"
+    for r in rows:
+        csv+=f"{r[7]},{format_date(r[6])},{r[3]},{r[4]},{r[5]}\n"
+    buf=io.BytesIO(csv.encode('utf-8')); buf.seek(0)
+    return send_file(buf, as_attachment=True, download_name="backup_loto.csv", mimetype="text/csv")
 
 @app.route('/saisir', methods=['GET','POST'])
 def saisir():
