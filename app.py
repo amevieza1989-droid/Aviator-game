@@ -20,7 +20,6 @@ def insert_tirage(jour,heure,jeu,haut,bas,date,numero):
     th=sum(int(x) for x in haut.split('-') if x.strip().isdigit()) if haut else 0
     tb=sum(int(x) for x in bas.split('-') if x.strip().isdigit()) if bas else 0
     conn=get_conn();c=conn.cursor()
-    # Evite doublon
     c.execute('DELETE FROM tirages WHERE numero=? AND jeu=?',(numero,jeu))
     c.execute('INSERT INTO tirages (jour,heure,jeu,haut,bas,date,numero,created,total_haut,total_bas) VALUES (?,?,?,?,?,?,?,?,?,?)',(jour,heure,jeu,haut,bas,date,numero,datetime.now().strftime('%d/%m/%Y %H:%M'),th,tb))
     conn.commit();conn.close()
@@ -33,11 +32,10 @@ def fetch_all(jeu=None):
         c.execute('SELECT * FROM tirages ORDER BY CAST(numero AS INTEGER) DESC, id DESC')
     r=c.fetchall();conn.close();return r
 
-# === PARSER V18 - FIX DATE 2026 - BASÉ SUR TON CODE ===
+# === PARSER V18.1 - FIX DATE 2026 ===
 def parse_file_pro(content, jeu_force):
     res=[]
     raw_lines=content.splitlines()
-    # Fusionne les lignes coupées avec /
     merged=[]; i=0
     while i < len(raw_lines):
         l=raw_lines[i].strip()
@@ -46,36 +44,27 @@ def parse_file_pro(content, jeu_force):
             merged.append(l+' '+raw_lines[i+1].strip()); i+=2
         else:
             merged.append(l); i+=1
-
     for line in merged:
         if 'WIN:' not in line: continue
         line=line.replace('\ufeff','').strip()
-        
         numero=None; date_str=""; line_sans_date=line
-
-        # CAS 1: 470 02/01/2026 WIN: ...  <- TON NOUVEAU FORMAT
         m = re.search(r'^(\d+)\s+(\d{2})/(\d{2})/(\d{4})', line)
         if m:
             numero=m.group(1); dd=m.group(2); mm=m.group(3); yyyy=m.group(4)
             date_str=f"{yyyy}-{mm}-{dd}"
             line_sans_date=line.replace(m.group(0),' ')
         else:
-            # CAS 2: 470 02/01 WIN: ...  <- ANCIEN FORMAT SANS ANNÉE
             m2 = re.search(r'^(\d+)\s+(\d{1,2})/(\d{1,2})\b', line)
             if m2:
                 numero=m2.group(1); dd=m2.group(2).zfill(2); mm=m2.group(3).zfill(2)
-                date_str=f"2026-{mm}-{dd}" # FORCE 2026
+                date_str=f"2026-{mm}-{dd}"
                 line_sans_date=line.replace(m2.group(0),' ')
             else:
-                # CAS 3: fallback
                 m3=re.search(r'(\d{4}-\d{2}-\d{2})',line)
                 if m3: date_str=m3.group(1); line_sans_date=line.replace(m3.group(1),' ')
                 nums_tmp=re.findall(r'\b\d+\b',line)
                 if nums_tmp: numero=nums_tmp[0]
-
         if not numero: continue
-
-        # Extraction WIN / MACHINE
         try:
             after_win=line_sans_date.split('WIN:')[1]
             if '/' in after_win:
@@ -110,7 +99,7 @@ auto_seed()
 @app.route('/')
 def home():
     total=len(fetch_all())
-    return render_template_string(f'<html><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{{background:#0a0a0a;color:#fff;font-family:Arial;padding:12px}}.btn{{display:block;background:#1a1a1a;border:1px solid gold;color:gold;padding:16px;margin:10px 0;border-radius:12px;text-align:center;text-decoration:none;font-weight:bold}}</style></head><body><div style="background:gold;color:#111;padding:14px;border-radius:12px;text-align:center;font-weight:bold">LOTO V18 - 2026 FIX - {total} tirages<br>MATINALE/DETENTE=10b AUTRES=5b</div><a class="btn" href="/saisir">🎰 SAISIR</a><a class="btn" href="/historique">📜 HISTORIQUE</a><a class="btn" href="/analyse">🧠 ANALYSE IA</a></body></html>')
+    return render_template_string(f'<html><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{{background:#0a0a0a;color:#fff;font-family:Arial;padding:12px}}.btn{{display:block;background:#1a1a1a;border:1px solid gold;color:gold;padding:16px;margin:10px 0;border-radius:12px;text-align:center;text-decoration:none;font-weight:bold}}</style></head><body><div style="background:gold;color:#111;padding:14px;border-radius:12px;text-align:center;font-weight:bold">LOTO V18.1 - 2026 FIX - {total} tirages<br>MATINALE/DETENTE=10b AUTRES=5b</div><a class="btn" href="/saisir">🎰 SAISIR</a><a class="btn" href="/historique">📜 HISTORIQUE</a><a class="btn" href="/analyse">🧠 ANALYSE IA</a></body></html>')
 
 @app.route('/historique', methods=['GET','POST'])
 def historique():
@@ -124,11 +113,10 @@ def historique():
             if f and f.filename: content_to_parse=f.read().decode('utf-8', errors='ignore')
         if content_to_parse:
             novos=parse_file_pro(content_to_parse, jeu_import)
-            # On vide avant pour être clean 2026
             if novos:
                 conn=get_conn();c=conn.cursor();c.execute('DELETE FROM tirages WHERE jeu=?',(jeu_import,));conn.commit();conn.close()
                 for j,h,je,ht,bs,dt,num in novos: insert_tirage(j,h,je,ht,bs,dt,num)
-                msg=f'<div style="background:#25D366;color:#fff;padding:12px;border-radius:10px;font-weight:bold">✅ {len(novos)} importés en 2026!</div>'
+                msg=f'<div style="background:#25D366;color:#fff;padding:12px;border-radius:10px;font-weight:bold;margin-bottom:10px">✅ {len(novos)} importés en 2026! Jeu {jeu_import}</div>'
     rows=fetch_all(jeu_filtre); total_rows=len(rows)
     def format_date(d):
         if not d or d.strip()=="": return "ANCIEN"
@@ -141,7 +129,39 @@ def historique():
         filtres+=f'<a href="/historique?jeu={j}" style="background:{"gold" if active else "#222"};color:{"#111" if active else "#fff"};padding:6px 10px;border-radius:20px;text-decoration:none;font-size:11px;font-weight:bold;border:1px solid gold">{j} ({cnt})</a>'
     filtres+='</div>'
     cards=''.join([f'<div style="background:#151515;padding:8px;margin:4px 0;border-radius:8px;border-left:4px solid {"#25D366" if r[3] in JEUX_10_BOULES else "gold"}"><b>{format_date(r[6])} {r[3]} #{r[7]}</b> {"WIN:"+r[4]+" MACHINE:"+r[5] if r[5] else "NUMÉROS:"+r[4]}<br><small>{"10 boules" if r[5] else "5 boules"}</small></div>' for r in rows[:500]]) or '<div style="color:#888;text-align:center;padding:20px">Base vide - Importe ton fichier 2026</div>'
-    return f'<html><body style="background:#000;color:#fff;font-family:Arial;padding:8px"><a href="/" style="color:gold">⬅ ACCUEIL</a><h3 style="color:gold;text-align:center">HISTORIQUE - {jeu_filtre} ({total_rows})</h3><div style="background:#111;border:2px solid gold;padding:10px;border-radius:12px">{msg}<form method="post" enctype="multipart/form-data"><select name="jeu_import" style="width:100%;padding:8px;border-radius:6px;margin-bottom:6px">{"".join([f"<option>{j}</option>" for j in JEUX_LISTE])}</select><textarea name="pasted_text" placeholder="Colle ici ton fichier 470 02/01/2026 WIN: ... " style="width:100%;height:100px;background:#222;color:#fff;border:1px solid #25D366;border-radius:8px;padding:6px"></textarea><div style="margin:6px 0;text-align:center;color:#888">ou</div><input type="file" name="file" style="width:100%;background:#222;color:#fff;padding:6px;border-radius:6px"><button style="width:100%;background:#25D366;color:#fff;padding:12px;border:none;border-radius:8px;font-weight:bold;margin-top:8px">🚀 IMPORTER V18 - 2026</button></form><div style="display:flex;gap:6px;margin-top:8px"><a href="/export/TXT?jeu=TOUS" style="flex:1;background:gold;color:#111;padding:8px;border-radius:6px;text-align:center;text-decoration:none;font-weight:bold">💾 BACKUP</a><a href="/reset" onclick="return confirm(\'Effacer?\')" style="flex:1;background:#ff3333;color:#fff;padding:8px;border-radius:6px;text-align:center;text-decoration:none">🗑️</a></div></div>{filtres}{cards}</body></html>'
+    return f'''<html><body style="background:#000;color:#fff;font-family:Arial;padding:8px">
+    <a href="/" style="color:gold;text-decoration:none">⬅ ACCUEIL</a>
+    <h3 style="color:gold;text-align:center">HISTORIQUE - {jeu_filtre} ({total_rows})</h3>
+    <div style="background:#111;border:2px solid gold;padding:12px;border-radius:12px">
+    {msg}
+    <form method="post" enctype="multipart/form-data">
+        <label style="color:gold;font-size:12px">CHOISIS LE JEU</label>
+        <select name="jeu_import" style="width:100%;padding:12px;border-radius:8px;margin-bottom:10px;background:#222;color:#fff;border:1px solid gold;font-weight:bold">
+            {"".join([f"<option value='{j}' {'selected' if j==jeu_filtre else ''}>{j}</option>" for j in JEUX_LISTE])}
+        </select>
+        <div style="border:2px dashed #25D366;padding:14px;border-radius:10px;background:#0a0a0a;margin-bottom:10px;text-align:center">
+            <label style="color:#25D366;font-size:12px;display:block;margin-bottom:6px">📁 IMPORTER FICHIER TXT</label>
+            <input type="file" name="file" id="fileInput" style="width:100%;background:#222;color:#fff;padding:10px;border-radius:6px;border:1px solid #333" accept=".txt">
+            <div id="fileName" style="color:gold;margin-top:6px;font-size:12px"></div>
+        </div>
+        <div style="text-align:center;color:#666;margin:8px 0;font-size:12px">— OU COLLE LE TEXTE —</div>
+        <textarea name="pasted_text" placeholder="Colle ici: 470 02/01/2026 WIN: 69-32-52-12-63 / 61-68-07-02-01..." style="width:100%;height:80px;background:#222;color:#fff;border:1px solid #444;border-radius:8px;padding:8px;font-size:12px"></textarea>
+        <button type="submit" style="width:100%;background:#25D366;color:#fff;padding:14px;border:none;border-radius:10px;font-weight:bold;margin-top:10px;font-size:16px">📥 IMPORTER V18.1 - 2026</button>
+    </form>
+    <div style="display:flex;gap:6px;margin-top:12px">
+        <a href="/export/TXT?jeu=TOUS" style="flex:1;background:gold;color:#111;padding:10px;border-radius:8px;text-align:center;text-decoration:none;font-weight:bold;font-size:13px">💾 BACKUP 2026</a>
+        <a href="/reset" onclick="return confirm('Effacer toute la base?')" style="flex:1;background:#ff3333;color:#fff;padding:10px;border-radius:8px;text-align:center;text-decoration:none;font-size:13px">🗑️ VIDER</a>
+    </div>
+    </div>
+    <script>
+    document.getElementById('fileInput').addEventListener('change', function(e){{
+        var name = e.target.files[0] ? e.target.files[0].name : '';
+        document.getElementById('fileName').innerText = name ? '✅ ' + name + ' prêt' : '';
+    }});
+    </script>
+    {filtres}
+    {cards}
+    </body></html>'''
 
 @app.route('/analyse')
 def analyse():
@@ -212,7 +232,6 @@ def export_file(fmt):
     jeu=request.args.get('jeu','TOUS'); rows=fetch_all(jeu)
     out=io.StringIO()
     for r in rows:
-        # Exporte en format complet 2026
         if r[6]:
             try: y,m,d=r[6].split('-'); ds=f"{d}/{m}/{y}"
             except: ds=r[6]
@@ -247,7 +266,7 @@ function updateForm() {{
     document.getElementById('jeu_input').value=jeu;
 }}
 </script></head><body>
-<h3 style="color:gold;text-align:center">🧠 V18 - SAISIR 2026</h3>
+<h3 style="color:gold;text-align:center">🧠 V18.1 - SAISIR 2026</h3>
 <label style="color:#25D366">N° TIRAGE (ex: 717)</label><input id="numero_out" type="number" min="1" max="2000" value="717" required>
 <label>DATE</label><input type="date" id="date_out" value="{today}" required>
 <label>JEU</label>
@@ -277,4 +296,4 @@ function updateForm() {{
 <a href="/" style="color:gold;display:block;text-align:center;margin-top:12px">⬅ Retour</a></body></html>"""
 
 if __name__=='__main__':
-    app.run(host='0.0.0.0', port=int(os.environ.get("PORT",10000)))
+    a
