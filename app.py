@@ -1,161 +1,202 @@
-from flask import Flask, request, render_template_string
-import sqlite3, os, re
-from collections import Counter
+from flask import Flask, request, render_template_string, redirect, send_file
+import sqlite3
+from collections import Counter, defaultdict
 from datetime import datetime
+import os, re, io
 
 app = Flask(__name__)
-DB = "loto.db"
-JEUX = ["MATINALE","DIAMANT","GOLD","CASH","BOOM","BENZ","PRESTIGE","MILLION","SUPER","KADOO","KING","SAM","BINGO","DETENTE"]
+DB = "/data/loto.db" if os.path.exists("/data") else "loto.db"
+JEUX_LISTE = ["MATINALE","DIAMANT","GOLD","CASH","BOOM","BENZ","PRESTIGE","MILLION","SUPER","KADOO","KING","SAM","BINGO","DETENTE"]
+JEUX_10_BOULES = ["MATINALE","DETENTE"]
 
-def get_conn():
-    return sqlite3.connect(DB)
-
+def get_conn(): return sqlite3.connect(DB)
 def init_db():
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute('CREATE TABLE IF NOT EXISTS tirages (id INTEGER PRIMARY KEY, jeu TEXT, haut TEXT, numero TEXT)')
-    conn.commit()
-    conn.close()
-
+    conn=get_conn();c=conn.cursor()
+    c.execute('CREATE TABLE IF NOT EXISTS tirages (id INTEGER PRIMARY KEY, jour TEXT, heure TEXT, jeu TEXT, haut TEXT, bas TEXT, date TEXT, numero TEXT, created TEXT, total_haut INTEGER, total_bas INTEGER)')
+    conn.commit();conn.close()
 init_db()
 
+def insert_tirage(jour,heure,jeu,haut,bas,date,numero):
+    th=sum(int(x) for x in haut.split('-') if x.strip().isdigit()) if haut else 0
+    tb=sum(int(x) for x in bas.split('-') if x.strip().isdigit()) if bas else 0
+    conn=get_conn();c=conn.cursor()
+    c.execute('DELETE FROM tirages WHERE numero=? AND jeu=?',(numero,jeu))
+    c.execute('INSERT INTO tirages (jour,heure,jeu,haut,bas,date,numero,created,total_haut,total_bas) VALUES (?,?,?,?,?,?,?,?,?,?)',(jour,heure,jeu,haut,bas,date,numero,datetime.now().strftime('%d/%m/%Y %H:%M'),th,tb))
+    conn.commit();conn.close()
+
 def fetch_all(jeu=None):
-    conn = get_conn()
-    cur = conn.cursor()
-    if jeu and jeu != "TOUS":
-        cur.execute('SELECT * FROM tirages WHERE jeu=? ORDER BY id DESC', (jeu,))
+    conn=get_conn();c=conn.cursor()
+    if jeu and jeu!='TOUS':
+        c.execute('SELECT * FROM tirages WHERE jeu=? ORDER BY CAST(numero AS INTEGER) DESC, id DESC',(jeu,))
     else:
-        cur.execute('SELECT * FROM tirages ORDER BY id DESC')
-    r = cur.fetchall()
-    conn.close()
-    return r
+        c.execute('SELECT * FROM tirages ORDER BY CAST(numero AS INTEGER) DESC, id DESC')
+    r=c.fetchall();conn.close();return r
 
-def moteur_v19(rows):
-    chrono = list(reversed(rows))
-    cnt = Counter()
-    for r in chrono[-50:]:
-        parts = re.findall(r'\d{1,2}', r[2])
-        clean = [p.zfill(2) for p in parts if 1 <= int(p) <= 90]
-        cnt.update(clean)
-    scores = cnt.most_common(20)
-    pool = [n for n,_ in scores]
-    if len(pool) < 12:
-        pool = ["01","05","12","25","33","47","52","69","70","81","85","90"]
-    return {
-        "T1": pool[:5],
-        "T2": pool[2:7],
-        "T3": pool[4:9],
-        "T4": pool[1:6],
-        "POOL": pool[:12],
-        "CNT": scores
-    }
+def parse_file_pro(content, jeu_force):
+    res=[]; raw_lines=content.splitlines(); merged=[]; i=0
+    while i < len(raw_lines):
+        l=raw_lines[i].strip()
+        if not l: i+=1; continue
+        if l.endswith('/') and i+1 < len(raw_lines):
+            merged.append(l+' '+raw_lines[i+1].strip()); i+=2
+        else:
+            merged.append(l); i+=1
+    for line in merged:
+        if 'WIN:' not in line: continue
+        line=line.replace('\ufeff','').strip()
+        numero=None; date_str=""; line_sans_date=line
+        m = re.search(r'^(\d+)\s+(\d{2})/(\d{2})/(\d{4})', line)
+        if m:
+            numero=m.group(1); dd=m.group(2); mm=m.group(3); yyyy=m.group(4)
+            date_str=f"{yyyy}-{mm}-{dd}"; line_sans_date=line.replace(m.group(0),' ')
+        else:
+            m2 = re.search(r'^(\d+)\s+(\d{1,2})/(\d{1,2})\b', line)
+            if m2:
+                numero=m2.group(1); dd=m2.group(2).zfill(2); mm=m2.group(3).zfill(2)
+                date_str=f"2026-{mm}-{dd}"; line_sans_date=line.replace(m2.group(0),' ')
+            else:
+                m3=re.search(r'(\d{4}-\d{2}-\d{2})',line)
+                if m3: date_str=m3.group(1); line_sans_date=line.replace(m3.group(1),' ')
+                nums_tmp=re.findall(r'\b\d+\b',line)
+                if nums_tmp: numero=nums_tmp[0]
+        if not numero: continue
+        try:
+            after_win=line_sans_date.split('WIN:')[1]
+            win_part,mach_part=after_win.split('/',1) if '/' in after_win else (after_win,"")
+            win_nums=[x.zfill(2) for x in re.findall(r'\d{1,2}', win_part) if x.isdigit() and 1<=int(x)<=90][:5]
+            mach_nums=[x.zfill(2) for x in re.findall(r'\d{1,2}', mach_part) if x.isdigit() and 1<=int(x)<=90][:5]
+            if len(win_nums)<5: continue
+            haut='-'.join(win_nums)
+            bas='-'.join(mach_nums) if jeu_force in JEUX_10_BOULES and len(mach_nums)>=5 else ''
+            res.append(('LUNDI',"09:00",jeu_force,haut,bas,date_str,numero))
+        except: continue
+    return res
 
-BASE = """
-<html><head><meta name='viewport' content='width=device-width,initial-scale=1'>
-<style>
-body{background:#000;color:#fff;font-family:sans-serif;padding:10px;margin:0}
-a{color:gold;text-decoration:none}
-.card{padding:14px;margin:10px 0;border-radius:12px;font-weight:bold;font-size:16px}
-.btn{padding:15px;display:block;margin:10px 0;border-radius:10px;text-align:center;font-weight:bold}
-</style></head><body>
-<a href='/'>⬅ ACCUEIL</a>
-%s
-</body></html>
-"""
+def moteur_v19_intelligent(rows):
+    chrono=list(reversed(rows))
+    all_nums=[]; paires=Counter(); annonce=defaultdict(Counter); prev=[]
+    for r in chrono:
+        win=[x.zfill(2) for x in r[4].split('-') if x.strip().isdigit()]
+        all_nums.extend(win)
+        for i in range(len(win)):
+            for j in range(i+1,len(win)):
+                paires[tuple(sorted([win[i],win[j]]))]+=1
+        if prev:
+            for p in prev:
+                for cur in win: annonce[p][cur]+=1
+        prev=win
+    cnt=Counter(all_nums)
+    chauds=[n for n,c in cnt.most_common(20)]
+    if len(chauds)<12: chauds=["01","05","12","25","33","47","52","69","70","81","85","90"]
+    top_paires=paires.most_common(6)
+    last=[x.zfill(2) for x in rows[0][4].split('-') if x.strip().isdigit()] if rows else []
+    t_ann=[]
+    for ln in last:
+        if ln in annonce: t_ann.extend([n for n,_ in annonce[ln].most_common(2)])
+    t_ann=list(dict.fromkeys(t_ann))[:5]
+    if len(t_ann)<5: t_ann+= [n for n in chauds if n not in t_ann][:5-len(t_ann)]
+    t_pair=[]
+    for (a,b),_ in top_paires[:2]: t_pair.extend([a,b])
+    t_pair=list(dict.fromkeys(t_pair))
+    if len(t_pair)<5: t_pair+= [n for n in chauds if n not in t_pair]
+    retard=sorted([str(i).zfill(2) for i in range(1,91)], key=lambda n: cnt.get(n,0))[:5]
+    return {"T1":chauds[:5],"T2":t_ann[:5],"T3":t_pair[:5],"T4":retard[:5],"POOL":chauds[:12],"CNT":cnt.most_common(15),"PAIRES":top_paires,"ANN":annonce,"LAST":last}
 
 @app.route('/')
 def home():
-    total = len(fetch_all())
-    body = f"""
-    <h1 style='color:gold;text-align:center;margin-top:20px'>LOTO V19 INTELLIGENT</h1>
-    <p style='text-align:center;color:#888'>{total} tirages en base</p>
-    <a href='/analyse?jeu=SUPER' class='btn' style='background:gold;color:#000'>ANALYSE SUPER</a>
-    <a href='/analyse?jeu=MATINALE' class='btn' style='background:#222;color:#fff;border:1px solid #444'>ANALYSE MATINALE</a>
-    <a href='/analyse?jeu=DIAMANT' class='btn' style='background:#222;color:#fff;border:1px solid #444'>ANALYSE DIAMANT</a>
-    <a href='/backtest?jeu=SUPER' class='btn' style='background:#25D366;color:#fff'>BACKTEST 2/5</a>
-    <a href='/historique' class='btn' style='background:#111;color:gold;border:1px solid gold'>HISTORIQUE + IMPORT</a>
-    <div style='text-align:center;margin-top:25px;font-size:12px;color:#555'>https://aviator-game-5iu6.onrender.com</div>
-    """
-    return render_template_string(BASE % body)
+    total=len(fetch_all())
+    return render_template_string(f"<html><head><meta name='viewport' content='width=device-width, initial-scale=1'><style>body{{background:#000;color:#fff;font-family:Arial;padding:12px}}.btn{{display:block;padding:18px;margin:12px 0;border-radius:14px;text-align:center;text-decoration:none;font-weight:bold}}</style></head><body><h1 style='color:gold;text-align:center'>LOTO V19 INTELLIGENT</h1><p style='text-align:center;color:#888'>{total} tirages en base</p><a class='btn' style='background:gold;color:#000' href='/analyse?jeu=SUPER'>ANALYSE SUPER</a><a class='btn' style='background:#222;color:#fff;border:1px solid #444' href='/analyse?jeu=MATINALE'>ANALYSE MATINALE</a><a class='btn' style='background:#222;color:#fff;border:1px solid #444' href='/analyse?jeu=DIAMANT'>ANALYSE DIAMANT</a><a class='btn' style='background:#25D366;color:#fff' href='/backtest?jeu=SUPER'>BACKTEST 2/5</a><a class='btn' style='background:#111;color:gold;border:1px solid gold' href='/historique'>HISTORIQUE + IMPORT</a></body></html>")
 
 @app.route('/analyse')
 def analyse():
-    jeu = request.args.get('jeu','SUPER')
-    rows = fetch_all(jeu)
-    if not rows:
-        return render_template_string(BASE % f"<h2 style='color:gold'>Base vide pour {jeu}</h2><p>Va dans HISTORIQUE pour importer des tirages</p>")
-    res = moteur_v19(rows)
-    body = f"""
-    <h2 style='color:gold'>V19 {jeu} - {len(rows)} tirages</h2>
-    <div class='card' style='background:gold;color:#000'>T1 CHAUDS (Top Freq): {' - '.join(res['T1'])}</div>
-    <div class='card' style='background:#111;border:2px solid #25D366'>T2 EQUILIBRE: {' - '.join(res['T2'])}</div>
-    <div class='card' style='background:#111;border:2px solid gold;color:gold'>T3 RETARD: {' - '.join(res['T3'])}</div>
-    <div class='card' style='background:#222;border:2px solid #ff6b6b;color:#ff6b6b'>T4 SECURITE: {' - '.join(res['T4'])}</div>
-    <div style='margin-top:20px;color:gold'>POOL 12 NUMEROS: {' - '.join(res['POOL'])}</div>
-    <div style='margin-top:12px;font-size:12px;color:#888'>Frequences: {res['CNT'][:12]}</div>
-    <div style='margin-top:20px'><a href='/backtest?jeu={jeu}' class='btn' style='background:#25D366;color:#fff'>VOIR BACKTEST 2/5</a></div>
-    """
-    return render_template_string(BASE % body)
+    jeu=request.args.get('jeu','MATINALE'); rows=fetch_all(jeu)
+    if not rows: return f"<html><body style='background:#000;color:#fff;padding:12px'><a href='/' style='color:gold'>ACCUEIL</a><h3>Base vide {jeu}</h3></body></html>"
+    res=moteur_v19_intelligent(rows)
+    chaud_html=''.join([f"<span style='display:inline-block;background:gold;color:#111;padding:5px 10px;border-radius:15px;margin:2px;font-weight:bold'>{n}({c})</span>" for n,c in res['CNT'][:10]])
+    paires_html=''.join([f"<span style='display:inline-block;background:#222;border:1px solid gold;color:gold;padding:5px 8px;border-radius:12px;margin:3px;font-size:12px'>{a}-{b} ({cc}x)</span>" for (a,b),cc in res['PAIRES'][:6]])
+    ann_html=""
+    for ln in res['LAST'][:3]:
+        if ln in res['ANN']:
+            top=res['ANN'][ln].most_common(3)
+            ann_html+=f"<div style='background:#111;border:1px solid #555;padding:6px;margin:3px;border-radius:6px'><b>Apres {ln}:</b> {' '.join([f'{n}({c}x)' for n,c in top])}</div>"
+    filtres='<div style="display:flex;flex-wrap:wrap;gap:4px;margin:8px 0">'
+    for j in JEUX_LISTE:
+        active=jeu==j
+        filtres+=f"<a href='/analyse?jeu={j}' style=\"background:{'gold' if active else '#222'};color:{'#111' if active else '#fff'};padding:5px 8px;border-radius:15px;text-decoration:none;font-size:10px;font-weight:bold;border:1px solid gold\">{j} ({len(fetch_all(j))})</a>"
+    filtres+='</div>'
+    return f"<html><body style='background:#000;color:#fff;font-family:Arial;padding:8px'><a href='/' style='color:gold'>⬅ ACCUEIL</a><h3 style='color:gold;text-align:center;border:1px solid gold;padding:8px;border-radius:10px'>V19 INTELLIGENT - {jeu} - {len(rows)} tirages - #{rows[0][7]}</h3>{filtres}<div style='background:#141414;padding:10px;border-radius:10px'><div><b>🔥 Chauds:</b><br>{chaud_html}</div><div style='margin-top:8px'><b>🔗 Paires:</b><br>{paires_html}</div><div style='margin-top:8px'><b>🔮 Annonceurs apres {'-'.join(res['LAST'])}:</b><br>{ann_html or '<small>Pas assez</small>'}</div><div style='margin-top:12px'><div style='background:gold;color:#111;padding:12px;border-radius:10px;margin:6px 0;font-weight:bold'>🎯 T1 CHAUDS<br><span style='font-size:22px'>{' - '.join(res['T1'])}</span></div><div style='background:#111;border:2px solid #25D366;color:#25D366;padding:12px;border-radius:10px;margin:6px 0;font-weight:bold'>🧠 T2 ANNONCEUR<br><span style='font-size:22px;color:#fff'>{' - '.join(res['T2'])}</span></div><div style='background:#111;border:2px solid gold;color:gold;padding:12px;border-radius:10px;margin:6px 0;font-weight:bold'>🔗 T3 PAIRES<br><span style='font-size:22px;color:#fff'>{' - '.join(res['T3'])}</span></div><div style='background:#222;border:2px solid #ff6b6b;color:#ff6b6b;padding:12px;border-radius:10px;margin:6px 0;font-weight:bold'>⏰ T4 RETARD<br><span style='font-size:22px;color:#fff'>{' - '.join(res['T4'])}</span></div><div style='margin-top:10px;color:gold'>POOL 12: {' - '.join(res['POOL'])}</div></div><div style='margin-top:15px'><a href='/backtest?jeu={jeu}' style='display:block;background:#25D366;color:#fff;padding:14px;border-radius:10px;text-align:center;text-decoration:none;font-weight:bold'>TESTER BACKTEST 2/5</a></div></div></body></html>"
 
 @app.route('/backtest')
 def backtest():
-    jeu = request.args.get('jeu','SUPER')
-    rows = fetch_all(jeu)
-    if len(rows) < 50:
-        return render_template_string(BASE % f"<h3>Pas assez de donnees: {len(rows)}/50 pour backtest</h3>")
-    chrono = list(reversed(rows))
-    wins = 0
-    total = len(chrono) - 40
-    for i in range(40, len(chrono)):
-        past = chrono[:i]
-        futur_nums = [x.zfill(2) for x in re.findall(r'\d{{1,2}}', chrono[i][2]) if 1 <= int(x) <= 90]
-        futur = set(futur_nums)
-        res = moteur_v19(past)
-        best = max(len(futur.intersection(set(t))) for t in [res['T1'],res['T2'],res['T3'],res['T4']])
-        if best >= 2:
-            wins += 1
-    pct = wins/total*100 if total else 0
-    body = f"""
-    <h2 style='color:gold;text-align:center'>BACKTEST {jeu}</h2>
-    <div style='font-size:52px;color:#25D366;font-weight:bold;text-align:center'>{pct:.1f}%</div>
-    <div style='text-align:center'>Reussite 2/5 avec 4 tickets</div>
-    <div style='text-align:center;margin-top:10px;color:#888'>{wins} / {total} tirages testes</div>
-    <div style='margin-top:20px'><a href='/analyse?jeu={jeu}' class='btn' style='background:gold;color:#000'>RETOUR ANALYSE</a></div>
-    """
-    return render_template_string(BASE % body)
+    jeu=request.args.get('jeu','SUPER'); rows=fetch_all(jeu)
+    if len(rows)<40: return f"<html><body style='background:#000;color:#fff;padding:12px'><a href='/' style='color:gold'>ACCUEIL</a><h3>Besoin 40 tirages, tu as {len(rows)}</h3></body></html>"
+    chrono=list(reversed(rows)); wins=0; total=len(chrono)-30
+    for i in range(30, len(chrono)):
+        past=chrono[:i]
+        futur=set([x.zfill(2) for x in chrono[i][4].split('-') if x.strip().isdigit()])
+        res=moteur_v19_intelligent(past)
+        best=max(len(futur.intersection(set(t))) for t in [res['T1'],res['T2'],res['T3'],res['T4']])
+        if best>=2: wins+=1
+    pct=wins/total*100 if total else 0
+    return f"<html><body style='background:#000;color:#fff;font-family:Arial;padding:12px;text-align:center'><a href='/' style='color:gold;float:left'>⬅ ACCUEIL</a><h2 style='color:gold'>BACKTEST {jeu} - V19</h2><div style='font-size:56px;color:#25D366;font-weight:bold'>{pct:.1f}%</div><div>Reussite 2/5 avec 4 tickets IA</div><div style='color:#888;margin-top:8px'>{wins}/{total}</div><a href='/analyse?jeu={jeu}' style='display:block;background:gold;color:#111;padding:14px;border-radius:10px;margin-top:20px;text-decoration:none;font-weight:bold'>RETOUR ANALYSE</a></body></html>"
 
 @app.route('/historique', methods=['GET','POST'])
-def hist():
-    msg = ""
-    if request.method == 'POST':
-        jeu = request.form.get('jeu_import','SUPER')
-        txt = request.form.get('pasted_text','')
-        if txt:
-            nums = [x.zfill(2) for x in re.findall(r'\d{1,2}', txt) if 1 <= int(x) <= 90][:5]
-            if len(nums) >= 5:
-                conn = get_conn()
-                cur = conn.cursor()
-                cur.execute('INSERT INTO tirages (jeu,haut,numero) VALUES (?,?,?)', (jeu, '-'.join(nums), '-'.join(nums)))
-                conn.commit()
-                conn.close()
-                msg = f"<div style='background:#25D366;color:#fff;padding:10px;border-radius:8px'>Ajoute: {'-'.join(nums)}</div>"
-            else:
-                msg = "<div style='background:#ff6b6b;color:#fff;padding:10px;border-radius:8px'>5 numeros requis (1-90)</div>"
-    rows = fetch_all()
-    rows_html = "".join([f"<div style='border-bottom:1px solid #222;padding:6px;font-size:13px'>{r[0]} | {r[1]} | {r[2]}</div>" for r in rows[:200]])
-    body = f"""
-    <h3 style='color:gold'>HISTORIQUE ({len(rows)} tirages)</h3>
-    {msg}
-    <form method='post' style='margin-top:10px'>
-    <select name='jeu_import' style='width:100%;padding:12px;background:#222;color:#fff;border-radius:8px'>
-    <option>SUPER</option><option>MATINALE</option><option>DIAMANT</option><option>GOLD</option>
-    </select>
-    <textarea name='pasted_text' placeholder='Ex: 69-32-52-12-63 ou 69 32 52 12 63' style='width:100%;height:90px;background:#222;color:#fff;margin-top:8px;border-radius:8px;padding:10px'></textarea>
-    <button style='width:100%;background:#25D366;color:#fff;padding:14px;margin-top:8px;border:none;border-radius:10px;font-weight:bold'>IMPORTER</button>
-    </form>
-    <div style='margin-top:15px;max-height:400px;overflow:auto;background:#111;border-radius:8px;padding:5px'>{rows_html}</div>
-    """
-    return render_template_string(BASE % body)
+def historique():
+    jeu_filtre=request.args.get('jeu','TOUS'); msg=''
+    if request.method=='POST':
+        jeu_import=request.form.get('jeu_import','MATINALE'); content=None
+        pasted=request.form.get('pasted_text','').strip()
+        if pasted: content=pasted
+        else:
+            f=request.files.get('file') or request.files.get('fichier')
+            if f and f.filename: content=f.read().decode('utf-8', errors='ignore')
+        if content:
+            novos=parse_file_pro(content, jeu_import)
+            if novos:
+                conn=get_conn();c=conn.cursor();c.execute('DELETE FROM tirages WHERE jeu=?',(jeu_import,));conn.commit();conn.close()
+                for j,h,je,ht,bs,dt,num in novos: insert_tirage(j,h,je,ht,bs,dt,num)
+                msg=f"<div style='background:#25D366;color:#fff;padding:12px;border-radius:10px;font-weight:bold;margin-bottom:10px'>✅ {len(novos)} importes 2026! {jeu_import}</div>"
+    rows=fetch_all(jeu_filtre)
+    def fmt(d):
+        if not d: return "ANCIEN"
+        try: y,m,dd=d.split('-'); return f"{dd}/{m}/{y}"
+        except: return d
+    filtres='<div style="display:flex;flex-wrap:wrap;gap:5px;margin:10px 0">'
+    for j in ["TOUS"]+JEUX_LISTE:
+        cnt=len(fetch_all() if j=="TOUS" else fetch_all(j))
+        active=jeu_filtre==j
+        filtres+=f"<a href='/historique?jeu={j}' style=\"background:{'gold' if active else '#222'};color:{'#111' if active else '#fff'};padding:6px 10px;border-radius:20px;text-decoration:none;font-size:11px;font-weight:bold;border:1px solid gold\">{j} ({cnt})</a>"
+    filtres+='</div>'
+    cards=''.join([f"<div style='background:#151515;padding:8px;margin:4px 0;border-radius:8px;border-left:4px solid {'#25D366' if r[3] in JEUX_10_BOULES else 'gold'}'><b>{fmt(r[6])} {r[3]} #{r[7]}</b> {r[4]} { '/ '+r[5] if r[5] else ''}</div>" for r in rows[:400]]) or '<div style="color:#888;text-align:center">Base vide</div>'
+    return f"<html><body style='background:#000;color:#fff;font-family:Arial;padding:8px'><a href='/' style='color:gold'>⬅ ACCUEIL</a><h3 style='color:gold;text-align:center'>HISTORIQUE V19 - {jeu_filtre} ({len(rows)})</h3><div style='background:#111;border:2px solid gold;padding:12px;border-radius:12px'>{msg}<form method='post' enctype='multipart/form-data'><select name='jeu_import' style='width:100%;padding:12px;border-radius:8px;margin-bottom:10px;background:#222;color:#fff;border:1px solid gold'>{' '.join([f'<option>{j}</option>' for j in JEUX_LISTE])}</select><input type='file' name='file' style='width:100%;background:#222;color:#fff;padding:10px;border-radius:6px' accept='.txt'><textarea name='pasted_text' placeholder='Colle: 470 02/01/2026 WIN: 69-32-52-12-63...' style='width:100%;height:80px;background:#222;color:#fff;border:1px solid #444;border-radius:8px;padding:8px;margin-top:8px'></textarea><button style='width:100%;background:#25D366;color:#fff;padding:14px;border:none;border-radius:10px;font-weight:bold;margin-top:10px'>📥 IMPORTER V19 2026</button></form><div style='display:flex;gap:6px;margin-top:12px'><a href='/export/TXT?jeu=TOUS' style='flex:1;background:gold;color:#111;padding:10px;border-radius:8px;text-align:center;text-decoration:none;font-weight:bold'>💾 BACKUP</a><a href='/reset' onclick=\"return confirm('Effacer?')\" style='flex:1;background:#ff3333;color:#fff;padding:10px;border-radius:8px;text-align:center;text-decoration:none'>🗑️ VIDER</a></div></div>{filtres}{cards}</body></html>"
 
-if __name__ == '__main__':
+@app.route('/reset')
+def reset():
+    conn=get_conn();c=conn.cursor();c.execute('DELETE FROM tirages');conn.commit();conn.close()
+    return redirect('/historique?jeu=TOUS')
+
+@app.route('/export/<fmt>')
+def export_file(fmt):
+    jeu=request.args.get('jeu','TOUS'); rows=fetch_all(jeu)
+    out=io.StringIO()
+    for r in rows:
+        if r[6]:
+            try: y,m,d=r[6].split('-'); ds=f"{d}/{m}/{y}"
+            except: ds=r[6]
+        else: ds="01/01/2026"
+        out.write(f"{r[7]} {ds} WIN: {r[4]} / {r[5]}\n" if r[5] else f"{r[7]} {ds} WIN: {r[4]}\n")
+    mem=io.BytesIO(out.getvalue().encode('utf-8'))
+    return send_file(mem, as_attachment=True, download_name=f'BACKUP_{jeu}_{len(rows)}_V19.txt', mimetype='text/plain')
+
+@app.route('/saisir', methods=['GET','POST'])
+def saisir():
+    today=datetime.now().strftime('%Y-%m-%d')
+    if request.method=='POST':
+        h='-'.join([request.form.get(f'h{i}','').zfill(2) for i in range(1,6) if request.form.get(f'h{i}','')])
+        b='-'.join([request.form.get(f'b{i}','').zfill(2) for i in range(1,6) if request.form.get(f'b{i}','')])
+        insert_tirage(request.form.get('jour'),request.form.get('heure'),request.form.get('jeu'),h,b,request.form.get('date'),request.form.get('numero'))
+        return redirect(f"/analyse?jeu={request.form.get('jeu')}")
+    return f"<html><body style='background:#000;color:#fff;padding:10px'><h3 style='color:gold'>SAISIR V19</h3><a href='/' style='color:gold'>ACCUEIL</a></body></html>"
+
+if __name__=='__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
