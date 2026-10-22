@@ -105,12 +105,33 @@ def moteur_v19_intelligent(rows):
 @app.route('/')
 def home():
     total=len(fetch_all())
-    return render_template_string(f"<html><head><meta name='viewport' content='width=device-width, initial-scale=1'><style>body{{background:#000;color:#fff;font-family:Arial;padding:12px}}.btn{{display:block;padding:18px;margin:12px 0;border-radius:14px;text-align:center;text-decoration:none;font-weight:bold}}</style></head><body><h1 style='color:gold;text-align:center'>LOTO V19 INTELLIGENT</h1><p style='text-align:center;color:#888'>{total} tirages en base</p><a class='btn' style='background:gold;color:#000' href='/analyse?jeu=SUPER'>ANALYSE SUPER</a><a class='btn' style='background:#222;color:#fff;border:1px solid #444' href='/analyse?jeu=MATINALE'>ANALYSE MATINALE</a><a class='btn' style='background:#222;color:#fff;border:1px solid #444' href='/analyse?jeu=DIAMANT'>ANALYSE DIAMANT</a><a class='btn' style='background:#25D366;color:#fff' href='/backtest?jeu=SUPER'>BACKTEST 2/5</a><a class='btn' style='background:#111;color:gold;border:1px solid gold' href='/historique'>HISTORIQUE + IMPORT</a></body></html>")
+    btns=""
+    for j in JEUX_LISTE:
+        c=len(fetch_all(j))
+        bg="#1a1a1a"
+        border="gold" if j=="SUPER" else "#333"
+        color="gold" if j=="SUPER" else "#fff"
+        if c>0: bg="#222"
+        btns+=f"<a class='btn' style='background:{bg};color:{color};border:1px solid {border}' href='/analyse?jeu={j}'>ANALYSE {j} ({c})</a>"
+    html=f"""
+    <html><head><meta name='viewport' content='width=device-width, initial-scale=1'>
+    <style>body{{background:#000;color:#fff;font-family:Arial;padding:12px;margin:0}}.btn{{display:block;padding:14px;margin:8px 0;border-radius:12px;text-align:center;text-decoration:none;font-weight:bold;font-size:13px}}</style>
+    </head><body>
+    <h1 style='color:gold;text-align:center;margin-top:10px'>LOTO V19.1 INTELLIGENT</h1>
+    <p style='text-align:center;color:#888'>{total} tirages en base - Tous jeux visibles</p>
+    {btns}
+    <a class='btn' style='background:#25D366;color:#fff;margin-top:12px' href='/backtest?jeu=SUPER'>BACKTEST 2/5 - SUPER</a>
+    <a class='btn' style='background:#111;color:gold;border:1px solid gold' href='/historique'>📜 HISTORIQUE + IMPORT</a>
+    <a class='btn' style='background:#222;color:#fff;border:1px solid #555' href='/saisir'>🎰 SAISIR TIRAGE 170</a>
+    <div style='text-align:center;margin-top:15px;font-size:10px;color:#444'>V19.1 - Fix Accueil - 14 Jeux - https://aviator-game-5iu6.onrender.com</div>
+    </body></html>
+    """
+    return html
 
 @app.route('/analyse')
 def analyse():
     jeu=request.args.get('jeu','MATINALE'); rows=fetch_all(jeu)
-    if not rows: return f"<html><body style='background:#000;color:#fff;padding:12px'><a href='/' style='color:gold'>ACCUEIL</a><h3>Base vide {jeu}</h3></body></html>"
+    if not rows: return f"<html><body style='background:#000;color:#fff;padding:12px'><a href='/' style='color:gold'>⬅ ACCUEIL</a><h3>Base vide {jeu} - Importe d'abord</h3></body></html>"
     res=moteur_v19_intelligent(rows)
     chaud_html=''.join([f"<span style='display:inline-block;background:gold;color:#111;padding:5px 10px;border-radius:15px;margin:2px;font-weight:bold'>{n}({c})</span>" for n,c in res['CNT'][:10]])
     paires_html=''.join([f"<span style='display:inline-block;background:#222;border:1px solid gold;color:gold;padding:5px 8px;border-radius:12px;margin:3px;font-size:12px'>{a}-{b} ({cc}x)</span>" for (a,b),cc in res['PAIRES'][:6]])
@@ -124,7 +145,7 @@ def analyse():
         active=jeu==j
         filtres+=f"<a href='/analyse?jeu={j}' style=\"background:{'gold' if active else '#222'};color:{'#111' if active else '#fff'};padding:5px 8px;border-radius:15px;text-decoration:none;font-size:10px;font-weight:bold;border:1px solid gold\">{j} ({len(fetch_all(j))})</a>"
     filtres+='</div>'
-    return f"<html><body style='background:#000;color:#fff;font-family:Arial;padding:8px'><a href='/' style='color:gold'>⬅ ACCUEIL</a><h3 style='color:gold;text-align:center;border:1px solid gold;padding:8px;border-radius:10px'>V19 INTELLIGENT - {jeu} - {len(rows)} tirages - #{rows[0][7]}</h3>{filtres}<div style='background:#141414;padding:10px;border-radius:10px'><div><b>🔥 Chauds:</b><br>{chaud_html}</div><div style='margin-top:8px'><b>🔗 Paires:</b><br>{paires_html}</div><div style='margin-top:8px'><b>🔮 Annonceurs apres {'-'.join(res['LAST'])}:</b><br>{ann_html or '<small>Pas assez</small>'}</div><div style='margin-top:12px'><div style='background:gold;color:#111;padding:12px;border-radius:10px;margin:6px 0;font-weight:bold'>🎯 T1 CHAUDS<br><span style='font-size:22px'>{' - '.join(res['T1'])}</span></div><div style='background:#111;border:2px solid #25D366;color:#25D366;padding:12px;border-radius:10px;margin:6px 0;font-weight:bold'>🧠 T2 ANNONCEUR<br><span style='font-size:22px;color:#fff'>{' - '.join(res['T2'])}</span></div><div style='background:#111;border:2px solid gold;color:gold;padding:12px;border-radius:10px;margin:6px 0;font-weight:bold'>🔗 T3 PAIRES<br><span style='font-size:22px;color:#fff'>{' - '.join(res['T3'])}</span></div><div style='background:#222;border:2px solid #ff6b6b;color:#ff6b6b;padding:12px;border-radius:10px;margin:6px 0;font-weight:bold'>⏰ T4 RETARD<br><span style='font-size:22px;color:#fff'>{' - '.join(res['T4'])}</span></div><div style='margin-top:10px;color:gold'>POOL 12: {' - '.join(res['POOL'])}</div></div><div style='margin-top:15px'><a href='/backtest?jeu={jeu}' style='display:block;background:#25D366;color:#fff;padding:14px;border-radius:10px;text-align:center;text-decoration:none;font-weight:bold'>TESTER BACKTEST 2/5</a></div></div></body></html>"
+    return f"<html><body style='background:#000;color:#fff;font-family:Arial;padding:8px'><a href='/' style='color:gold'>⬅ ACCUEIL</a><h3 style='color:gold;text-align:center;border:1px solid gold;padding:8px;border-radius:10px'>V19.1 - {jeu} - {len(rows)} tirages - #{rows[0][7]}</h3>{filtres}<div style='background:#141414;padding:10px;border-radius:10px'><div><b>🔥 Chauds:</b><br>{chaud_html}</div><div style='margin-top:8px'><b>🔗 Paires:</b><br>{paires_html}</div><div style='margin-top:8px'><b>🔮 Annonceurs apres {'-'.join(res['LAST'])}:</b><br>{ann_html or '<small>Pas assez</small>'}</div><div style='margin-top:12px'><div style='background:gold;color:#111;padding:12px;border-radius:10px;margin:6px 0;font-weight:bold'>🎯 T1 CHAUDS<br><span style='font-size:22px'>{' - '.join(res['T1'])}</span></div><div style='background:#111;border:2px solid #25D366;color:#25D366;padding:12px;border-radius:10px;margin:6px 0;font-weight:bold'>🧠 T2 ANNONCEUR<br><span style='font-size:22px;color:#fff'>{' - '.join(res['T2'])}</span></div><div style='background:#111;border:2px solid gold;color:gold;padding:12px;border-radius:10px;margin:6px 0;font-weight:bold'>🔗 T3 PAIRES<br><span style='font-size:22px;color:#fff'>{' - '.join(res['T3'])}</span></div><div style='background:#222;border:2px solid #ff6b6b;color:#ff6b6b;padding:12px;border-radius:10px;margin:6px 0;font-weight:bold'>⏰ T4 RETARD<br><span style='font-size:22px;color:#fff'>{' - '.join(res['T4'])}</span></div><div style='margin-top:10px;color:gold'>POOL 12: {' - '.join(res['POOL'])}</div></div><div style='margin-top:15px'><a href='/backtest?jeu={jeu}' style='display:block;background:#25D366;color:#fff;padding:14px;border-radius:10px;text-align:center;text-decoration:none;font-weight:bold'>TESTER BACKTEST 2/5</a></div></div></body></html>"
 
 @app.route('/backtest')
 def backtest():
@@ -138,7 +159,7 @@ def backtest():
         best=max(len(futur.intersection(set(t))) for t in [res['T1'],res['T2'],res['T3'],res['T4']])
         if best>=2: wins+=1
     pct=wins/total*100 if total else 0
-    return f"<html><body style='background:#000;color:#fff;font-family:Arial;padding:12px;text-align:center'><a href='/' style='color:gold;float:left'>⬅ ACCUEIL</a><h2 style='color:gold'>BACKTEST {jeu} - V19</h2><div style='font-size:56px;color:#25D366;font-weight:bold'>{pct:.1f}%</div><div>Reussite 2/5 avec 4 tickets IA</div><div style='color:#888;margin-top:8px'>{wins}/{total}</div><a href='/analyse?jeu={jeu}' style='display:block;background:gold;color:#111;padding:14px;border-radius:10px;margin-top:20px;text-decoration:none;font-weight:bold'>RETOUR ANALYSE</a></body></html>"
+    return f"<html><body style='background:#000;color:#fff;font-family:Arial;padding:12px;text-align:center'><a href='/' style='color:gold;float:left'>⬅ ACCUEIL</a><h2 style='color:gold'>BACKTEST {jeu} V19.1</h2><div style='font-size:56px;color:#25D366;font-weight:bold'>{pct:.1f}%</div><div>Reussite 2/5 avec 4 tickets IA</div><div style='color:#888;margin-top:8px'>{wins}/{total}</div><a href='/analyse?jeu={jeu}' style='display:block;background:gold;color:#111;padding:14px;border-radius:10px;margin-top:20px;text-decoration:none;font-weight:bold'>RETOUR ANALYSE</a></body></html>"
 
 @app.route('/historique', methods=['GET','POST'])
 def historique():
@@ -168,7 +189,7 @@ def historique():
         filtres+=f"<a href='/historique?jeu={j}' style=\"background:{'gold' if active else '#222'};color:{'#111' if active else '#fff'};padding:6px 10px;border-radius:20px;text-decoration:none;font-size:11px;font-weight:bold;border:1px solid gold\">{j} ({cnt})</a>"
     filtres+='</div>'
     cards=''.join([f"<div style='background:#151515;padding:8px;margin:4px 0;border-radius:8px;border-left:4px solid {'#25D366' if r[3] in JEUX_10_BOULES else 'gold'}'><b>{fmt(r[6])} {r[3]} #{r[7]}</b> {r[4]} { '/ '+r[5] if r[5] else ''}</div>" for r in rows[:400]]) or '<div style="color:#888;text-align:center">Base vide</div>'
-    return f"<html><body style='background:#000;color:#fff;font-family:Arial;padding:8px'><a href='/' style='color:gold'>⬅ ACCUEIL</a><h3 style='color:gold;text-align:center'>HISTORIQUE V19 - {jeu_filtre} ({len(rows)})</h3><div style='background:#111;border:2px solid gold;padding:12px;border-radius:12px'>{msg}<form method='post' enctype='multipart/form-data'><select name='jeu_import' style='width:100%;padding:12px;border-radius:8px;margin-bottom:10px;background:#222;color:#fff;border:1px solid gold'>{' '.join([f'<option>{j}</option>' for j in JEUX_LISTE])}</select><input type='file' name='file' style='width:100%;background:#222;color:#fff;padding:10px;border-radius:6px' accept='.txt'><textarea name='pasted_text' placeholder='Colle: 470 02/01/2026 WIN: 69-32-52-12-63...' style='width:100%;height:80px;background:#222;color:#fff;border:1px solid #444;border-radius:8px;padding:8px;margin-top:8px'></textarea><button style='width:100%;background:#25D366;color:#fff;padding:14px;border:none;border-radius:10px;font-weight:bold;margin-top:10px'>📥 IMPORTER V19 2026</button></form><div style='display:flex;gap:6px;margin-top:12px'><a href='/export/TXT?jeu=TOUS' style='flex:1;background:gold;color:#111;padding:10px;border-radius:8px;text-align:center;text-decoration:none;font-weight:bold'>💾 BACKUP</a><a href='/reset' onclick=\"return confirm('Effacer?')\" style='flex:1;background:#ff3333;color:#fff;padding:10px;border-radius:8px;text-align:center;text-decoration:none'>🗑️ VIDER</a></div></div>{filtres}{cards}</body></html>"
+    return f"<html><body style='background:#000;color:#fff;font-family:Arial;padding:8px'><a href='/' style='color:gold'>⬅ ACCUEIL</a><h3 style='color:gold;text-align:center'>HISTORIQUE V19.1 - {jeu_filtre} ({len(rows)})</h3><div style='background:#111;border:2px solid gold;padding:12px;border-radius:12px'>{msg}<form method='post' enctype='multipart/form-data'><select name='jeu_import' style='width:100%;padding:12px;border-radius:8px;margin-bottom:10px;background:#222;color:#fff;border:1px solid gold'>{' '.join([f'<option>{j}</option>' for j in JEUX_LISTE])}</select><input type='file' name='file' style='width:100%;background:#222;color:#fff;padding:10px;border-radius:6px' accept='.txt'><textarea name='pasted_text' placeholder='Colle: 170 22/10/2026 WIN: 48-84-85-34-41' style='width:100%;height:80px;background:#222;color:#fff;border:1px solid #444;border-radius:8px;padding:8px;margin-top:8px'></textarea><button style='width:100%;background:#25D366;color:#fff;padding:14px;border:none;border-radius:10px;font-weight:bold;margin-top:10px'>📥 IMPORTER V19.1</button></form><div style='display:flex;gap:6px;margin-top:12px'><a href='/export/TXT?jeu=TOUS' style='flex:1;background:gold;color:#111;padding:10px;border-radius:8px;text-align:center;text-decoration:none;font-weight:bold'>💾 BACKUP</a><a href='/reset' onclick=\"return confirm('Effacer?')\" style='flex:1;background:#ff3333;color:#fff;padding:10px;border-radius:8px;text-align:center;text-decoration:none'>🗑️ VIDER</a></div></div>{filtres}{cards}</body></html>"
 
 @app.route('/reset')
 def reset():
@@ -186,7 +207,7 @@ def export_file(fmt):
         else: ds="01/01/2026"
         out.write(f"{r[7]} {ds} WIN: {r[4]} / {r[5]}\n" if r[5] else f"{r[7]} {ds} WIN: {r[4]}\n")
     mem=io.BytesIO(out.getvalue().encode('utf-8'))
-    return send_file(mem, as_attachment=True, download_name=f'BACKUP_{jeu}_{len(rows)}_V19.txt', mimetype='text/plain')
+    return send_file(mem, as_attachment=True, download_name=f'BACKUP_{jeu}_{len(rows)}_V19_1.txt', mimetype='text/plain')
 
 @app.route('/saisir', methods=['GET','POST'])
 def saisir():
@@ -196,7 +217,7 @@ def saisir():
         b='-'.join([request.form.get(f'b{i}','').zfill(2) for i in range(1,6) if request.form.get(f'b{i}','')])
         insert_tirage(request.form.get('jour'),request.form.get('heure'),request.form.get('jeu'),h,b,request.form.get('date'),request.form.get('numero'))
         return redirect(f"/analyse?jeu={request.form.get('jeu')}")
-    return f"<html><body style='background:#000;color:#fff;padding:10px'><h3 style='color:gold'>SAISIR V19</h3><a href='/' style='color:gold'>ACCUEIL</a></body></html>"
+    return f"<html><body style='background:#000;color:#fff;padding:12px'><h3 style='color:gold;text-align:center'>V19.1 - SAISIR TIRAGE 170</h3><a href='/' style='color:gold'>⬅ ACCUEIL</a><p style='color:#888'>Utilise Historique+Import avec : 170 22/10/2026 WIN: 48-84-85-34-41</p></body></html>"
 
 if __name__=='__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
