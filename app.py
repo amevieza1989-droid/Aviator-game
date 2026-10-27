@@ -72,16 +72,14 @@ def parse_file_pro(content, jeu_force):
         except: continue
     return res
 
-# ===== V20 - CORRECTIONS LONATO 01-90 =====
+# ===== V20.1 - CORRECTIONS LONATO 01-90 =====
 def voisins_lonato(n_int):
-    """V20 FIX: Plus jamais 0 ou 91. 1->90, 90->1"""
     n = int(n_int)
     moins = 90 if n == 1 else n - 1
     plus = 1 if n == 90 else n + 1
     return [f"{moins:02d}", f"{plus:02d}"]
 
 def miroir_lonato(n_str):
-    """V20: 90->09, 07->70, 60->06"""
     s = str(n_str).zfill(2)
     mir = s[::-1]
     mi = int(mir)
@@ -90,10 +88,9 @@ def miroir_lonato(n_str):
     return None
 
 def filet_voisin(ticket):
-    """Transforme 90-07-60-21-30 en 89-06-59-20-29"""
     res=[]
     for num in ticket:
-        res.append(voisins_lonato(int(num))[0]) # on prend le -1
+        res.append(voisins_lonato(int(num))[0])
     return res
 
 def filet_miroir(ticket):
@@ -141,11 +138,6 @@ def moteur_v20(rows, jeu):
     t_ann=list(dict.fromkeys(t_ann))[:5]
     if len(t_ann)<5: t_ann+= [n for n in chauds if n not in t_ann][:5-len(t_ann)]
     
-    t_pair=[]
-    for (a,b),_ in top_paires[:3]: t_pair.extend([a,b])
-    t_pair=list(dict.fromkeys(t_pair))
-    if len(t_pair)<5: t_pair+= [n for n in chauds if n not in t_pair]
-    
     retard=sorted([str(i).zfill(2) for i in range(1,91)], key=lambda n: cnt.get(n,0))[:5]
     
     t_mix=[]
@@ -154,13 +146,12 @@ def moteur_v20(rows, jeu):
         if b not in t_mix: t_mix.append(b)
         if len(t_mix)>=5: break
 
-    # V20 - STRATEGIE 400F POUR 2.500F / 7.500F
     T1_COEUR = chauds[:5]
-    T2_VOISIN = filet_voisin(T1_COEUR)  # Filet -1 pour ton bug 07->06
-    T3_MIROIR = filet_miroir(T1_COEUR)  # Filet 90->09
-    T4_MIX = t_mix[:5]  # Ton ticket diversifié
+    T2_VOISIN = filet_voisin(T1_COEUR)
+    T3_MIROIR = filet_miroir(T1_COEUR)
+    T4_MIX = t_mix[:5]
 
-    return {"T1":T1_COEUR,"T2":T2_VOISIN,"T3":T3_MIROIR,"T4":T4_MIX,"POOL":chauds[:12],"CNT":cnt.most_common(15),"PAIRES":top_paires,"ANN":annonce,"LAST":last_5, "LAST_FULL": last, "CHAUDS":chauds}
+    return {"T1":T1_COEUR,"T2":T2_VOISIN,"T3":T3_MIROIR,"T4":T4_MIX,"POOL":chauds[:12],"CNT":cnt.most_common(15),"PAIRES":top_paires,"ANN":annonce,"LAST":last_5, "LAST_FULL": last}
 
 @app.route('/')
 def home():
@@ -168,9 +159,9 @@ def home():
     btns=""
     for j in JEUX_LISTE:
         c=len(fetch_all(j))
-        bg="#1a1a1a"; border="gold" if j=="SUPER" else "#333"; color="gold" if j=="SUPER" else "#fff"
+        bg="#1a1a1a"
         if c>0: bg="#222"
-        btns+=f"<a class='btn' style='background:{bg};color:{color};border:1px solid {border}' href='/analyse?jeu={j}'>ANALYSE {j} ({c})</a>"
+        btns+=f"<a class='btn' style='background:{bg};color:#fff;border:1px solid #333' href='/analyse?jeu={j}'>ANALYSE {j} ({c})</a>"
     html=f"""
     <html><head><meta name='viewport' content='width=device-width, initial-scale=1'>
     <style>body{{background:#000;color:#fff;font-family:Arial;padding:12px;margin:0}}.btn{{display:block;padding:14px;margin:8px 0;border-radius:12px;text-align:center;text-decoration:none;font-weight:bold;font-size:13px}}</style>
@@ -180,7 +171,7 @@ def home():
     {btns}
     <a class='btn' style='background:#25D366;color:#fff;margin-top:12px' href='/backtest?jeu=MATINALE'>BACKTEST 2/5 - V20 FILET</a>
     <a class='btn' style='background:#111;color:gold;border:1px solid gold' href='/historique'>📜 HISTORIQUE + IMPORT</a>
-    <div style='text-align:center;margin-top:15px;font-size:10px;color:#444'>V20 - 400F Strategie 2500F/7500F</div>
+    <div style='text-align:center;margin-top:15px;font-size:10px;color:#444'>V20.1 - Tous jeux neutres - 400F Strategie 2500F/7500F</div>
     </body></html>
     """
     return html
@@ -188,7 +179,7 @@ def home():
 @app.route('/analyse')
 def analyse():
     jeu=request.args.get('jeu','MATINALE'); rows=fetch_all(jeu)
-    if not rows: return f"<html><body style='background:#000;color:#fff;padding:12px'><a href='/' style='color:gold'>⬅ ACCUEIL</a><h3>Base vide {jeu}</h3></body></html>"
+    if not rows: return f"<html><body style='background:#000;color:#fff;padding:12px'><a href='/' style='color:gold'>⬅ ACCUEIL</a><h3>Base vide {jeu} - Importe d'abord</h3></body></html>"
     res=moteur_v20(rows, jeu)
     chaud_html=''.join([f"<span style='display:inline-block;background:gold;color:#111;padding:5px 10px;border-radius:15px;margin:2px;font-weight:bold'>{n}({c})</span>" for n,c in res['CNT'][:10]])
     paires_html=''.join([f"<span style='display:inline-block;background:#222;border:1px solid gold;color:gold;padding:5px 8px;border-radius:12px;margin:3px;font-size:12px'>{a}-{b} ({cc}x)</span>" for (a,b),cc in res['PAIRES'][:6]])
@@ -203,11 +194,11 @@ def analyse():
         filtres+=f"<a href='/analyse?jeu={j}' style=\"background:{'gold' if active else '#222'};color:{'#111' if active else '#fff'};padding:5px 8px;border-radius:15px;text-decoration:none;font-size:10px;font-weight:bold;border:1px solid gold\">{j} ({len(fetch_all(j))})</a>"
     filtres+='</div>'
     mode = "10B ANALYSE" if jeu in JEUX_10_BOULES else "5B"
-    return f"<html><body style='background:#000;color:#fff;font-family:Arial;padding:8px'><a href='/' style='color:gold'>⬅ ACCUEIL</a><h3 style='color:gold;text-align:center;border:1px solid gold;padding:8px;border-radius:10px'>V20 - {jeu} - {mode} - {len(rows)} tirages - #{rows[0][7]}</h3>{filtres}<div style='background:#141414;padding:10px;border-radius:10px'><div><b>🔥 Chauds:</b><br>{chaud_html}</div><div style='margin-top:8px'><b>🔗 Paires:</b><br>{paires_html}</div><div style='margin-top:8px'><b>🔮 Annonceurs apres {'-'.join(res['LAST'])}:</b><br>{ann_html or '<small>Pas assez</small>'}<br><small style=color:#888>Full dernier: {'-'.join(res['LAST_FULL'])}</small></div><div style='margin-top:12px'><div style='background:gold;color:#111;padding:12px;border-radius:10px;margin:6px 0;font-weight:bold'>🎯 T1 COEUR (ton 90-07-60-21-30)<br><span style='font-size:22px'>{' - '.join(res['T1'])}</span><br><small>PERM 100F</small></div><div style='background:#111;border:2px solid #25D366;color:#25D366;padding:12px;border-radius:10px;margin:6px 0;font-weight:bold'>🛡️ T2 FILET VOISIN -1/+1 [01-90 FIX]<br><span style='font-size:22px;color:#fff'>{' - '.join(res['T2'])}</span><br><small style='color:#888'>Si 07 devient 06 -> tu as 2 bons = 2500F</small><br><small>PERM 100F</small></div><div style='background:#111;border:2px solid #00d4ff;color:#00d4ff;padding:12px;border-radius:10px;margin:6px 0;font-weight:bold'>🪞 T3 FILET MIROIR 90↔09<br><span style='font-size:22px;color:#fff'>{' - '.join(res['T3'])}</span><br><small style='color:#888'>Si 90 devient 09 -> tu as 2 bons = 2500F</small><br><small>PERM 100F</small></div><div style='background:#222;border:2px solid #ff6b6b;color:#ff6b6b;padding:12px;border-radius:10px;margin:6px 0;font-weight:bold'>🔥 T4 MIX CHAUDS<br><span style='font-size:22px;color:#fff'>{' - '.join(res['T4'])}</span><br><small>PERM 100F</small></div><div style='margin-top:10px;color:gold'>TOTAL: 400F | POOL 12: {' - '.join(res['POOL'])}</div></div><div style='margin-top:15px'><a href='/backtest?jeu={jeu}' style='display:block;background:#25D366;color:#fff;padding:14px;border-radius:10px;text-align:center;text-decoration:none;font-weight:bold'>TESTER BACKTEST V20 2/5</a></div></div></body></html>"
+    return f"<html><body style='background:#000;color:#fff;font-family:Arial;padding:8px'><a href='/' style='color:gold'>⬅ ACCUEIL</a><h3 style='color:gold;text-align:center;border:1px solid gold;padding:8px;border-radius:10px'>V20.1 - {jeu} - {mode} - {len(rows)} tirages - #{rows[0][7]}</h3>{filtres}<div style='background:#141414;padding:10px;border-radius:10px'><div><b>🔥 Chauds:</b><br>{chaud_html}</div><div style='margin-top:8px'><b>🔗 Paires:</b><br>{paires_html}</div><div style='margin-top:8px'><b>🔮 Annonceurs apres {'-'.join(res['LAST'])}:</b><br>{ann_html or '<small>Pas assez</small>'}<br><small style=color:#888>Full dernier: {'-'.join(res['LAST_FULL'])}</small></div><div style='margin-top:12px'><div style='background:gold;color:#111;padding:12px;border-radius:10px;margin:6px 0;font-weight:bold'>🎯 T1 COEUR<br><span style='font-size:22px'>{' - '.join(res['T1'])}</span><br><small>PERM 100F</small></div><div style='background:#111;border:2px solid #25D366;color:#25D366;padding:12px;border-radius:10px;margin:6px 0;font-weight:bold'>🛡️ T2 FILET VOISIN -1 [01-90 FIX]<br><span style='font-size:22px;color:#fff'>{' - '.join(res['T2'])}</span><br><small>PERM 100F</small></div><div style='background:#111;border:2px solid #00d4ff;color:#00d4ff;padding:12px;border-radius:10px;margin:6px 0;font-weight:bold'>🪞 T3 FILET MIROIR 90↔09<br><span style='font-size:22px;color:#fff'>{' - '.join(res['T3'])}</span><br><small>PERM 100F</small></div><div style='background:#222;border:2px solid #ff6b6b;color:#ff6b6b;padding:12px;border-radius:10px;margin:6px 0;font-weight:bold'>🔥 T4 MIX<br><span style='font-size:22px;color:#fff'>{' - '.join(res['T4'])}</span><br><small>PERM 100F</small></div><div style='margin-top:10px;color:gold'>TOTAL 400F pour viser 2500F / 7500F | POOL: {' - '.join(res['POOL'])}</div></div><div style='margin-top:15px'><a href='/backtest?jeu={jeu}' style='display:block;background:#25D366;color:#fff;padding:14px;border-radius:10px;text-align:center;text-decoration:none;font-weight:bold'>TESTER BACKTEST V20.1</a></div></div></body></html>"
 
 @app.route('/backtest')
 def backtest():
-    jeu=request.args.get('jeu','SUPER'); rows=fetch_all(jeu)
+    jeu=request.args.get('jeu','MATINALE'); rows=fetch_all(jeu)
     if len(rows)<40: return f"<html><body style='background:#000;color:#fff;padding:12px'><a href='/' style='color:gold'>ACCUEIL</a><h3>Besoin 40 tirages, tu as {len(rows)}</h3></body></html>"
     chrono=list(reversed(rows)); wins=0; wins3=0; total=len(chrono)-30
     for i in range(30, len(chrono)):
@@ -222,7 +213,7 @@ def backtest():
         if best>=3: wins3+=1
     pct=wins/total*100 if total else 0
     pct3=wins3/total*100 if total else 0
-    return f"<html><body style='background:#000;color:#fff;font-family:Arial;padding:12px;text-align:center'><a href='/' style='color:gold;float:left'>⬅ ACCUEIL</a><h2 style='color:gold'>BACKTEST {jeu} V20 - FILET</h2><div style='font-size:56px;color:#25D366;font-weight:bold'>{pct:.1f}%</div><div>Reussite 2/5 (2500F) avec 4 tickets</div><div style='color:#888;margin-top:8px'>{wins}/{total}</div><div style='margin-top:15px;font-size:32px;color:gold'>{pct3:.1f}%</div><div>Reussite 3/5 (7500F)</div><div style='color:#888'>{wins3}/{total}</div><a href='/analyse?jeu={jeu}' style='display:block;background:gold;color:#111;padding:14px;border-radius:10px;margin-top:20px;text-decoration:none;font-weight:bold'>RETOUR ANALYSE</a></body></html>"
+    return f"<html><body style='background:#000;color:#fff;font-family:Arial;padding:12px;text-align:center'><a href='/' style='color:gold;float:left'>⬅ ACCUEIL</a><h2 style='color:gold'>BACKTEST {jeu} V20.1 - FILET</h2><div style='font-size:56px;color:#25D366;font-weight:bold'>{pct:.1f}%</div><div>Reussite 2/5 (2500F) - 4 tickets</div><div style='color:#888;margin-top:8px'>{wins}/{total}</div><div style='margin-top:15px;font-size:32px;color:gold'>{pct3:.1f}%</div><div>Reussite 3/5 (7500F)</div><div style='color:#888'>{wins3}/{total}</div><a href='/analyse?jeu={jeu}' style='display:block;background:gold;color:#111;padding:14px;border-radius:10px;margin-top:20px;text-decoration:none;font-weight:bold'>RETOUR ANALYSE</a></body></html>"
 
 @app.route('/historique', methods=['GET','POST'])
 def historique():
@@ -239,20 +230,29 @@ def historique():
             if novos:
                 conn=get_conn();c=conn.cursor();c.execute('DELETE FROM tirages WHERE jeu=?',(jeu_import,));conn.commit();conn.close()
                 for j,h,je,ht,bs,dt,num in novos: insert_tirage(j,h,je,ht,bs,dt,num)
-                msg=f"<div style='background:#25D366;color:#fff;padding:12px;border-radius:10px;font-weight:bold;margin-bottom:10px'>✅ {len(novos)} importes V20! {jeu_import}</div>"
+                return redirect(f'/historique?jeu={jeu_import}')
     rows=fetch_all(jeu_filtre)
     def fmt(d):
         if not d: return "ANCIEN"
         try: y,m,dd=d.split('-'); return f"{dd}/{m}/{y}"
         except: return d
+    
+    options_html=""
+    for j in JEUX_LISTE:
+        sel = "selected" if (jeu_filtre==j or (jeu_filtre=="TOUS" and j=="MATINALE")) else ""
+        options_html+=f'<option {sel}>{j}</option>'
+
     filtres='<div style="display:flex;flex-wrap:wrap;gap:5px;margin:10px 0">'
     for j in ["TOUS"]+JEUX_LISTE:
         cnt=len(fetch_all() if j=="TOUS" else fetch_all(j))
         active=jeu_filtre==j
-        filtres+=f"<a href='/historique?jeu={j}' style=\"background:{'gold' if active else '#222'};color:{'#111' if active else '#fff'};padding:6px 10px;border-radius:20px;text-decoration:none;font-size:11px;font-weight:bold;border:1px solid gold\">{j} ({cnt})</a>"
+        bg = "gold" if active else "#222"
+        col = "#111" if active else "#fff"
+        filtres+=f"<a href='/historique?jeu={j}' style=\"background:{bg};color:{col};padding:6px 10px;border-radius:20px;text-decoration:none;font-size:11px;font-weight:bold;border:1px solid gold\">{j} ({cnt})</a>"
     filtres+='</div>'
-    cards=''.join([f"<div style='background:#151515;padding:8px;margin:4px 0;border-radius:8px;border-left:4px solid {'#25D366' if r[3] in JEUX_10_BOULES else 'gold'}'><b>{fmt(r[6])} {r[3]} #{r[7]}</b> {r[4]} { '/ '+r[5] if r[5] else ''}</div>" for r in rows[:400]]) or '<div style="color:#888;text-align:center">Base vide</div>'
-    return f"<html><body style='background:#000;color:#fff;font-family:Arial;padding:8px'><a href='/' style='color:gold'>⬅ ACCUEIL</a><h3 style='color:gold;text-align:center'>HISTORIQUE V20 - {jeu_filtre} ({len(rows)})</h3><div style='background:#111;border:2px solid gold;padding:12px;border-radius:12px'>{msg}<form method='post' enctype='multipart/form-data'><select name='jeu_import' style='width:100%;padding:12px;border-radius:8px;margin-bottom:10px;background:#222;color:#fff;border:1px solid gold'>{' '.join([f'<option>{j}</option>' for j in JEUX_LISTE])}</select><input type='file' name='file' style='width:100%;background:#222;color:#fff;padding:10px;border-radius:6px' accept='.txt'><textarea name='pasted_text' placeholder='Colle: 170 22/10/2026 WIN: 48-84-85-34-41 / 12-34-56-78-90' style='width:100%;height:80px;background:#222;color:#fff;border:1px solid #444;border-radius:8px;padding:8px;margin-top:8px'></textarea><button style='width:100%;background:#25D366;color:#fff;padding:14px;border:none;border-radius:10px;font-weight:bold;margin-top:10px'>📥 IMPORTER V20</button></form><div style='display:flex;gap:6px;margin-top:12px'><a href='/export/TXT?jeu=TOUS' style='flex:1;background:gold;color:#111;padding:10px;border-radius:8px;text-align:center;text-decoration:none;font-weight:bold'>💾 BACKUP</a><a href='/reset' onclick=\"return confirm('Effacer?')\" style='flex:1;background:#ff3333;color:#fff;padding:10px;border-radius:8px;text-align:center;text-decoration:none'>🗑️ VIDER</a></div></div>{filtres}{cards}</body></html>"
+    cards=''.join([f"<div style='background:#151515;padding:8px;margin:4px 0;border-radius:8px;border-left:4px solid {'#25D366' if r[3] in JEUX_10_BOULES else 'gold'}'><b>{fmt(r[6])} {r[3]} #{r[7]}</b> {r[4]} { '/ '+r[5] if r[5] else ''}</div>" for r in rows[:400]]) or '<div style="color:#888;text-align:center">Base vide - Importe pour ce jeu</div>'
+    
+    return f"<html><body style='background:#000;color:#fff;font-family:Arial;padding:8px'><a href='/' style='color:gold'>⬅ ACCUEIL</a><h3 style='color:gold;text-align:center'>HISTORIQUE V20.1 - {jeu_filtre} ({len(rows)})</h3><div style='background:#111;border:2px solid gold;padding:12px;border-radius:12px'>{msg}<form method='post' enctype='multipart/form-data'><select name='jeu_import' style='width:100%;padding:12px;border-radius:8px;margin-bottom:10px;background:#222;color:#fff;border:1px solid gold'>{options_html}</select><input type='file' name='file' style='width:100%;background:#222;color:#fff;padding:10px;border-radius:6px' accept='.txt'><textarea name='pasted_text' placeholder='Colle: 170 22/10/2026 WIN: 48-84-85-34-41 / 12-34-56-78-90' style='width:100%;height:80px;background:#222;color:#fff;border:1px solid #444;border-radius:8px;padding:8px;margin-top:8px'></textarea><button style='width:100%;background:#25D366;color:#fff;padding:14px;border:none;border-radius:10px;font-weight:bold;margin-top:10px'>📥 IMPORTER V20.1 dans {jeu_filtre if jeu_filtre!='TOUS' else 'jeu selectionne'}</button></form><div style='display:flex;gap:6px;margin-top:12px'><a href='/export/TXT?jeu={jeu_filtre}' style='flex:1;background:gold;color:#111;padding:10px;border-radius:8px;text-align:center;text-decoration:none;font-weight:bold'>💾 BACKUP {jeu_filtre}</a><a href='/reset' onclick=\"return confirm('Effacer TOUT?')\" style='flex:1;background:#ff3333;color:#fff;padding:10px;border-radius:8px;text-align:center;text-decoration:none'>🗑️ VIDER</a></div></div>{filtres}{cards}</body></html>"
 
 @app.route('/reset')
 def reset():
@@ -270,11 +270,7 @@ def export_file(fmt):
         else: ds="01/01/2026"
         out.write(f"{r[7]} {ds} WIN: {r[4]} / {r[5]}\n" if r[5] else f"{r[7]} {ds} WIN: {r[4]}\n")
     mem=io.BytesIO(out.getvalue().encode('utf-8'))
-    return send_file(mem, as_attachment=True, download_name=f'BACKUP_{jeu}_{len(rows)}_V20.txt', mimetype='text/plain')
-
-@app.route('/saisir', methods=['GET','POST'])
-def saisir():
-    return f"<html><body style='background:#000;color:#fff;padding:12px'><h3 style='color:gold;text-align:center'>V20 - Utilise Historique+Import</h3><a href='/' style='color:gold'>⬅ ACCUEIL</a></body></html>"
+    return send_file(mem, as_attachment=True, download_name=f'BACKUP_{jeu}_{len(rows)}_V20_1.txt', mimetype='text/plain')
 
 if __name__=='__main__':
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
